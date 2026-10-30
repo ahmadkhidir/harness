@@ -45,11 +45,18 @@ class CommandRouter {
   ///
   /// Catches any unhandled module exceptions and wraps them in a structured error [SystemResponse].
   Future<SystemResponse> executeCall(SystemCall call) async {
+    if (call.command == 'malformed_json_error') {
+      return SystemResponse.error(
+        command: call.command,
+        errorMessage: 'Invalid command or malformed JSON: ${call.parameters['error'] ?? 'Malformed JSON'}',
+      );
+    }
+
     final module = _registry[call.command];
     if (module == null) {
       return SystemResponse.error(
         command: call.command,
-        errorMessage: 'Unknown command: "${call.command}". Not registered in Harness.',
+        errorMessage: 'Unknown command or invalid JSON: "${call.command}" is not registered in Harness.',
       );
     }
 

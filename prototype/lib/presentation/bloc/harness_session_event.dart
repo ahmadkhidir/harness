@@ -1,0 +1,47 @@
+import 'package:equatable/equatable.dart';
+import '../../core/engine/engine_events.dart';
+
+/// Base event class for [HarnessSessionBloc].
+abstract class HarnessSessionEvent extends Equatable {
+  const HarnessSessionEvent();
+
+  @override
+  List<Object?> get props => [];
+}
+
+/// Dispatched to initialize or load a session workspace.
+class InitializeSessionEvent extends HarnessSessionEvent {
+  final String? sessionId;
+
+  const InitializeSessionEvent({this.sessionId});
+
+  @override
+  List<Object?> get props => [sessionId];
+}
+
+/// Dispatched when the user submits a new prompt to execute.
+class SubmitUserPromptEvent extends HarnessSessionEvent {
+  final String prompt;
+  final String? apiKey;
+
+  const SubmitUserPromptEvent(this.prompt, {this.apiKey});
+
+  @override
+  List<Object?> get props => [prompt, apiKey];
+}
+
+/// Dispatched to cancel an active turn in progress.
+class CancelActiveTurnEvent extends HarnessSessionEvent {
+  const CancelActiveTurnEvent();
+}
+
+/// Dispatched internally as the engine stream yields progressive execution events.
+class SessionEngineProgressReceived extends HarnessSessionEvent {
+  final EngineProgressEvent progressEvent;
+
+  const SessionEngineProgressReceived(this.progressEvent);
+
+  @override
+  List<Object?> get props => [progressEvent];
+}
+

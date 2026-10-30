@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 /// Observation output returned by a module execution wrapped in `<system_response>` tags.
 ///
 /// Injected back into the model's conversation history during intermediate turns of the
@@ -63,10 +65,14 @@ class SystemResponse {
   /// Converts the observation into standard `<system_response>` XML markup
   /// for feedback injection into LLM context history.
   String toXmlString() {
-    final body = isSuccess
-        ? (data is String ? data : data?.toString() ?? '')
-        : (errorMessage ?? 'Unknown error occurred.');
-    return '<system_response command="$command" status="$status">\n$body\n</system_response>';
+    if (isError) {
+      final errorPayload = json.encode({
+        'error': errorMessage ?? 'Invalid command or malformed JSON',
+      });
+      return '<system_response command="$command" status="error">\n$errorPayload\n</system_response>';
+    }
+    final body = data is String ? data : (data != null ? json.encode(data) : '');
+    return '<system_response command="$command" status="success">\n$body\n</system_response>';
   }
 
   /// Serializes the response to a JSON map.
