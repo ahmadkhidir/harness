@@ -39,10 +39,9 @@ class ContextLine {
 
   /// Sanitizes text to guarantee it occupies exactly one discrete line in `context.txt`.
   ///
-  /// Non-obvious logic:
-  /// Carriage returns (`\r`) are stripped, and newlines (`\n`) are converted to the two-character
-  /// literal escape sequence `\n`. This ensures regex scanners (`grep`) and line counters treat
-  /// each conversational turn as a single atomic line on disk.
+  /// Carriage returns (`\r`) are stripped and newlines (`\n`) are escaped to literal `\n`.
+  /// This ensures grep scanners and line-oriented operations treat each conversational
+  /// event as a single discrete line on disk.
   static String sanitizeText(String text) {
     return text.replaceAll('\r', '').replaceAll('\n', r'\n');
   }
