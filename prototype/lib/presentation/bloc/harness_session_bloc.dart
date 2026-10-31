@@ -3,22 +3,27 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/engine/engine_events.dart';
 import '../../core/engine/harness_engine.dart';
 import '../../core/models/turn.dart';
+import '../../data/secure_storage/key_storage_service.dart';
 import 'harness_session_event.dart';
 import 'harness_session_state.dart';
 
 /// BLoC coordinating the reactive session lifecycle and multi-turn execution events.
 ///
 /// Implements the presentation state management defined in `docs/Harness/architecture.md`
-/// and acceptance criteria for FEAT-001:
+/// and acceptance criteria for FEAT-001 and FEAT-002:
 /// - Dispatches progressive events to update tool indicators on the screen in real time.
-/// - Streams engine states between `HarnessTurnExecuting` and `HarnessSessionReady`.
+/// - Resolves API keys from [KeyStorageService] when not passed directly in the event.
+/// - Flags authentication errors for direct user navigation to Settings.
 class HarnessSessionBloc
     extends Bloc<HarnessSessionEvent, HarnessSessionState> {
   final HarnessEngine engine;
+  final KeyStorageService? keyStorage;
   StreamSubscription<EngineProgressEvent>? _engineSubscription;
 
-  HarnessSessionBloc({required this.engine})
-      : super(const HarnessSessionInitial()) {
+  HarnessSessionBloc({
+    required this.engine,
+    this.keyStorage,
+  }) : super(const HarnessSessionInitial()) {
     on<InitializeSessionEvent>(_onInitializeSession);
     on<SubmitUserPromptEvent>(_onSubmitUserPrompt);
     on<SessionEngineProgressReceived>(_onEngineProgressReceived);
@@ -60,12 +65,15 @@ class HarnessSessionBloc
       statusMessage: 'Thinking...',
     ));
 
+    final activeProviderId = engine.modelProvider.config.id;
+    final effectiveApiKey = event.apiKey ?? await keyStorage?.getApiKey(activeProviderId);
+
     await _engineSubscription?.cancel();
     _engineSubscription = engine
         .executeTurn(
           userPrompt: event.prompt,
           sessionId: currentSessionId,
-          apiKey: event.apiKey,
+          apiKey: effectiveApiKey,
         )
         .listen(
           (progressEvent) => add(SessionEngineProgressReceived(progressEvent)),
@@ -140,10 +148,21 @@ class HarnessSessionBloc
         turns: updatedTurns,
       ));
     } else if (progress is EngineErrorOccurred) {
+      final msg = progress.message;
+      final isAuth = msg.toLowerCase().contains('api key') ||
+          msg.toLowerCase().contains('authentication') ||
+          msg.toLowerCase().contains('unauthorized') ||
+          msg.toLowerCase().contains('authorization');
+      final isMem = msg.toLowerCase().contains('memory limit') ||
+          msg.toLowerCase().contains('memory bounds') ||
+          msg.toLowerCase().contains('exceeded mobile memory');
+
       emit(HarnessSessionError(
         sessionId: currentSessionId,
         turns: currentTurns,
         errorMessage: progress.message,
+        isAuthError: isAuth,
+        isMemoryError: isMem,
       ));
     }
   }

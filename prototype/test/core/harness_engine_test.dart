@@ -26,7 +26,7 @@ class MockToolModule extends HarnessModule {
   }
 }
 
-class ScriptedModelProvider implements ModelProvider {
+class ScriptedModelProvider extends ModelProvider {
   final List<String> script;
   int _index = 0;
 

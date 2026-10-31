@@ -46,3 +46,10 @@ app.*.map.json
 
 # FVM Version Cache
 .fvm/
+
+# Environment Variables & Secrets
+.env
+!.env.example
+
+# Windows dynamic libraries
+*.dll

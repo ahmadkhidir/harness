@@ -116,7 +116,7 @@ void main() {
   group('Schema - ProviderConfig Model', () {
     test('serializes and validates ProviderConfig', () {
       final config = ProviderConfig(
-        id: 'gemini_flash',
+        id: 'gemini',
         providerType: 'gemini',
         displayName: 'Google Gemini 2.0 Flash',
         modelName: 'gemini-2.0-flash',
@@ -128,7 +128,7 @@ void main() {
       );
 
       final json = config.toJson();
-      expect(json['id'], 'gemini_flash');
+      expect(json['id'], 'gemini');
       expect(json['providerType'], 'gemini');
       expect(json['customHeaders']['X-Custom-Route'], 'fast');
 
@@ -277,10 +277,7 @@ void main() {
     });
 
     test('rejects non 1.0 version', () {
-      expect(
-        () => A2UIMessage(version: '2.0'),
-        throwsArgumentError,
-      );
+      expect(() => A2UIMessage(version: '2.0'), throwsArgumentError);
     });
   });
 
@@ -309,13 +306,13 @@ void main() {
         surfaceId: 'surface_42',
         rootComponentType: 'Card',
       );
-      final line = ContextLine(
-        type: ContextLineType.agent,
-        content: stub,
-      );
+      final line = ContextLine(type: ContextLineType.agent, content: stub);
 
       final formatted = line.format();
-      expect(formatted, 'AGENT: [A2UI: surfaceId=surface_42, components=Card]\n');
+      expect(
+        formatted,
+        'AGENT: [A2UI: surfaceId=surface_42, components=Card]\n',
+      );
 
       final parsed = ContextLine.parse(formatted);
       expect(parsed.type, ContextLineType.agent);
@@ -323,14 +320,18 @@ void main() {
     });
 
     test('formats and parses SUMMARY line', () {
-      final summaryText = 'Previous 10 turns summarized: explored directory tree.';
+      final summaryText =
+          'Previous 10 turns summarized: explored directory tree.';
       final line = ContextLine(
         type: ContextLineType.summary,
         content: summaryText,
       );
 
       final formatted = line.format();
-      expect(formatted, 'SUMMARY: Previous 10 turns summarized: explored directory tree.\n');
+      expect(
+        formatted,
+        'SUMMARY: Previous 10 turns summarized: explored directory tree.\n',
+      );
 
       final parsed = ContextLine.parse(formatted);
       expect(parsed.type, ContextLineType.summary);
@@ -345,4 +346,3 @@ void main() {
     });
   });
 }
-

@@ -13,7 +13,7 @@ class ProviderConfig {
     'local_device',
   };
 
-  /// Unique stable key for this configuration entry, e.g. `gemini_flash` or `ollama_local`.
+  /// Unique stable key for this configuration entry, e.g. `gemini` or `ollama`.
   final String id;
 
   /// Underlying adapter driver type: must be one of [validProviderTypes].

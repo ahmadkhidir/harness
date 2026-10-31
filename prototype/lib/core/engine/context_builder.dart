@@ -19,7 +19,7 @@ class ContextBuilder {
   String buildSystemInstruction({
     required List<CommandDefinition> commands,
     List<SkillMetadata> availableSkills = const [],
-    String storageTree = 'storage/ (empty)',
+    String storageTree = '<filesystem>\nprimary/\n  (empty)\n</filesystem>',
     DateTime? currentTime,
   }) {
     final now = currentTime ?? DateTime.now();

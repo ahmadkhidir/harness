@@ -87,14 +87,18 @@ class HarnessTurnExecuting extends HarnessSessionState {
 /// An unrecoverable failure occurred during turn execution.
 class HarnessSessionError extends HarnessSessionState {
   final String errorMessage;
+  final bool isAuthError;
+  final bool isMemoryError;
 
   const HarnessSessionError({
     super.sessionId,
     super.turns = const [],
     required this.errorMessage,
+    this.isAuthError = false,
+    this.isMemoryError = false,
   });
 
   @override
-  List<Object?> get props => [sessionId, turns, errorMessage];
+  List<Object?> get props => [sessionId, turns, errorMessage, isAuthError, isMemoryError];
 }
 

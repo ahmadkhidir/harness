@@ -108,7 +108,7 @@ class TestCrashingModule extends HarnessModule {
   }
 }
 
-class ScriptedModelProvider implements ModelProvider {
+class ScriptedModelProvider extends ModelProvider {
   final List<String> script;
   final List<List<ModelMessage>> receivedHistories = [];
   int _step = 0;

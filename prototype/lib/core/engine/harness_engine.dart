@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:uuid/uuid.dart';
 import '../models/turn.dart';
+import '../utils/file_system_manager.dart';
 import 'command_router.dart';
 import 'context_builder.dart';
 import 'engine_events.dart';
@@ -47,14 +48,17 @@ class HarnessEngine {
     required String userPrompt,
     required String sessionId,
     String? apiKey,
-    String storageTree = 'storage/ (empty)',
+    String? storageTree,
   }) async* {
     yield EngineTurnStarted(userPrompt);
+
+    final resolvedStorageTree = storageTree ??
+        (HarnessFileSystem.instance?.formatFilesystemTree() ?? '<filesystem>\nprimary/\n  (empty)\n</filesystem>');
 
     // Build the baseline system instruction with dynamic tool catalog
     final systemInstruction = contextBuilder.buildSystemInstruction(
       commands: router.allCommandDefinitions,
-      storageTree: storageTree,
+      storageTree: resolvedStorageTree,
     );
 
     final dialogueHistory = <ModelMessage>[
