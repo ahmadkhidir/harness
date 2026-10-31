@@ -7,6 +7,7 @@ library;
 export 'a2ui_message.dart';
 export 'command_definition.dart';
 export 'context_line.dart';
+export 'installed_skill_package.dart';
 export 'provider_config.dart';
 export 'session.dart';
 export 'skill_metadata.dart';

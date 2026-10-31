@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:uuid/uuid.dart';
+import '../../data/services/skills_service.dart';
 import '../models/turn.dart';
 import '../utils/file_system_manager.dart';
 import 'command_router.dart';
@@ -26,6 +27,9 @@ class HarnessEngine {
   /// Active LLM inference provider.
   ModelProvider modelProvider;
 
+  /// Service scanning and managing installed skill packages.
+  final SkillsService skillsService;
+
   /// Maximum permissible conversational turns per user task (prevents infinite loops).
   final int maxTurns;
 
@@ -33,8 +37,9 @@ class HarnessEngine {
     required this.router,
     required this.contextBuilder,
     required this.modelProvider,
+    SkillsService? skillsService,
     this.maxTurns = 15,
-  });
+  }) : skillsService = skillsService ?? SkillsService();
 
   /// Updates the active inference adapter at runtime (e.g. user switched model in settings).
   void updateModelProvider(ModelProvider newProvider) {
@@ -53,12 +58,16 @@ class HarnessEngine {
     yield EngineTurnStarted(userPrompt);
 
     final resolvedStorageTree = storageTree ??
-        (HarnessFileSystem.instance?.formatFilesystemTree() ?? '<filesystem>\nprimary/\n  (empty)\n</filesystem>');
+        (HarnessFileSystem.instance?.formatFilesystemTree() ??
+            '<filesystem>\nprimary/\n  (empty)\n</filesystem>');
 
-    // Build the baseline system instruction with dynamic tool catalog
+    final availableSkills = skillsService.scanAvailableSkills();
+
+    // Build the baseline system instruction with dynamic tool catalog and available skills
     final systemInstruction = contextBuilder.buildSystemInstruction(
       commands: router.allCommandDefinitions,
       storageTree: resolvedStorageTree,
+      availableSkills: availableSkills,
     );
 
     final dialogueHistory = <ModelMessage>[

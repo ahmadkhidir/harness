@@ -71,12 +71,12 @@ class HarnessFileSystem {
       }
     }
 
-    if (!await harnessRoot.exists()) {
-      await harnessRoot.create(recursive: true);
+    if (!harnessRoot.existsSync()) {
+      harnessRoot.createSync(recursive: true);
     }
 
     final fs = HarnessFileSystem(rootDir: harnessRoot);
-    await fs.ensureBaseDirectories();
+    fs.ensureBaseDirectoriesSync();
 
     // Re-hydrate any external workspace mounts persisted by the user:
     try {
@@ -131,11 +131,16 @@ class HarnessFileSystem {
 
   /// Ensures that all foundational directories in the layout exist on disk.
   Future<void> ensureBaseDirectories() async {
-    await dataDir.create(recursive: true);
-    await modelsDir.create(recursive: true);
-    await storageDir.create(recursive: true);
-    await skillsDir.create(recursive: true);
-    await sessionsDir.create(recursive: true);
+    ensureBaseDirectoriesSync();
+  }
+
+  /// Synchronously ensures all foundational directories exist on disk.
+  void ensureBaseDirectoriesSync() {
+    dataDir.createSync(recursive: true);
+    modelsDir.createSync(recursive: true);
+    storageDir.createSync(recursive: true);
+    skillsDir.createSync(recursive: true);
+    sessionsDir.createSync(recursive: true);
   }
 
   /// Resolves an on-device model weight file inside `data/models/`.

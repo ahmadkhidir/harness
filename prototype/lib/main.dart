@@ -11,12 +11,14 @@ import 'core/routes/app_routes.dart';
 import 'core/utils/file_system_manager.dart';
 import 'data/database/app_database.dart';
 import 'data/secure_storage/key_storage_service.dart';
+import 'modules/skills/skills_module.dart';
 import 'presentation/bloc/harness_session_bloc.dart';
 import 'presentation/bloc/model_switcher_bloc.dart';
 import 'presentation/bloc/model_switcher_event.dart';
 import 'presentation/screens/chat_screen.dart';
 import 'presentation/screens/placeholder_screen.dart';
 import 'presentation/screens/settings_screen.dart';
+import 'presentation/screens/workspace_screen.dart';
 import 'providers/model_provider_factory.dart';
 
 void main() async {
@@ -53,6 +55,7 @@ void main() async {
     );
 
     final router = CommandRouter();
+    router.registerModule(SkillsModule());
     final contextBuilder = ContextBuilder();
     engine = HarnessEngine(
       router: router,
@@ -63,6 +66,7 @@ void main() async {
     database = AppDatabase.inMemory();
     keyStorage = KeyStorageService(useInMemoryFallback: true);
     final router = CommandRouter();
+    router.registerModule(SkillsModule());
     final contextBuilder = ContextBuilder();
     final modelProvider = ModelProviderFactory.create(
       config: ProviderConfig(
@@ -193,10 +197,7 @@ class _HarnessAppState extends State<HarnessApp> {
                 title: 'Sessions Management',
                 featureName: 'FEAT-005',
               ),
-          AppRoutes.workspace: (_) => const PlaceholderScreen(
-                title: 'Workspace & Skills',
-                featureName: 'FEAT-003 & FEAT-004',
-              ),
+          AppRoutes.workspace: (_) => const WorkspaceScreen(),
         },
       ),
     );
