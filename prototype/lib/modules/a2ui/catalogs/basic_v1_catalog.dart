@@ -1,138 +1,237 @@
-/// A2UI `basic/v1` Component Catalog Specification & JSON Pointer Resolver.
+import 'dart:convert';
+import 'a2ui_catalog.dart';
+
+/// Full official A2UI Basic Catalog Specification and JSON Pointer Resolver.
 ///
 /// Implements FEAT-006:
-/// - Baked into the app binary as compile-time constants for instant $O(1)$ zero-I/O retrieval.
-/// - Conforms to the standard Agent-to-User Interface specification (`a2ui-project/a2ui`).
-/// - Defines standard components: `Card`, `Column`, `Row`, `Text`, `Icon`, `Button`, `Divider`.
-/// - Supports runtime dynamic data bindings using RFC 6901 JSON Pointers (`@path: /path/to/value`).
-library;
+/// - Conforms to the official standard A2UI specification (`a2ui-project/a2ui` Basic Catalog v1.0).
+/// - Canonical ID: `https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json`
+/// - Friendly alias: `basic/v1`
+/// - Defines all 18 basic components:
+///   `Text`, `Image`, `Icon`, `Video`, `AudioPlayer`, `Row`, `Column`, `List`, `Card`,
+///   `Tabs`, `Modal`, `Divider`, `Button`, `TextField`, `CheckBox`, `ChoicePicker`, `Slider`, `DateTimeInput`.
+/// - Defines all 14 catalog functions:
+///   `required`, `regex`, `length`, `numeric`, `email`, `formatString`, `formatNumber`,
+///   `formatCurrency`, `formatDate`, `pluralize`, `openUrl`, `and`, `or`, `not`.
+/// - Supports runtime dynamic data bindings using RFC 6901 JSON Pointers (`{"@path": "/path"}` or `"${/path}"`).
+class BasicV1Catalog implements A2UICatalog {
+  static const String canonicalId =
+      'https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json';
+  static const String shortAlias = 'basic/v1';
 
-/// Detailed schema documentation and usage guidelines returned when `load_a2ui_catalog(catalog: "basic/v1")` is invoked.
+  @override
+  String get catalogId => canonicalId;
+
+  @override
+  List<String> get aliases => const [shortAlias, canonicalId];
+
+  @override
+  String get title => 'A2UI Basic Catalog';
+
+  @override
+  String get description =>
+      'Unified catalog of basic A2UI components and functions for mobile and web surfaces.';
+
+  @override
+  String get documentation => kBasicV1CatalogDocumentation;
+
+  /// Ensures this catalog is registered in [A2UICatalogRegistry].
+  static void register() {
+    A2UICatalogRegistry.instance.register(BasicV1Catalog());
+  }
+}
+
+/// Official documentation string returned to the model upon calling `load_a2ui_catalog`.
 const String kBasicV1CatalogDocumentation = '''
-A2UI Catalog: basic/v1
-Specification Version: 1.0
+# A2UI Catalog: basic/v1
+Catalog ID: https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json
+Alias: basic/v1
+Protocol Version: 1.0
 
 Description:
-Declarative UI component catalog for mobile Flutter client rendering. When interactive controls, cards, confirmation dialogues, or structured status displays are needed, emit a `send_a2ui` system call with `createSurface`, `updateComponents`, and optional `updateDataModel`.
+Unified declarative UI component catalog for mobile Flutter client rendering. When interactive controls, cards, forms, media players, lists, or structured status displays are needed, emit a `send_a2ui` system call.
 
-Supported Components:
-1. Card
-   - Properties:
-     - child: string (ID of child component, e.g. "col_root")
-     - elevation: number (default 1)
-     - padding: number (default 12)
-2. Column
-   - Properties:
-     - children: list of strings (IDs of child components, e.g. ["t_title", "div_1", "r_actions"])
-     - spacing: number (default 8)
-     - crossAxisAlignment: "start" | "center" | "end" | "stretch" (default "start")
-     - mainAxisAlignment: "start" | "center" | "end" | "spaceBetween" (default "start")
-3. Row
-   - Properties:
-     - children: list of strings (IDs of child components)
-     - spacing: number (default 8)
-     - crossAxisAlignment: "start" | "center" | "end" (default "center")
-     - mainAxisAlignment: "start" | "center" | "end" | "spaceBetween" (default "start")
-4. Text
-   - Properties:
-     - text: string OR object {"@path": "/pointer"} for dynamic data binding
-     - style: "headline" | "title" | "body" | "caption" | "label" (default "body")
-     - fontWeight: "bold" | "normal" | "medium" | "w600" (default "normal")
-     - color: "primary" | "secondary" | "error" | "success" | "warning" | "onSurface" | hex code "#RRGGBB"
-5. Icon
-   - Properties:
-     - icon: string (e.g. "check", "warning", "info", "star", "flight", "close", "settings", "check_circle", "schedule", "error", "event")
-     - size: number (default 24)
-     - color: "primary" | "secondary" | "error" | "success" | "warning" | hex code "#RRGGBB"
-6. Button
-   - Properties:
-     - label: string OR object {"@path": "/pointer"}
-     - action: string (event action ID sent on tap, e.g. "confirm_booking", "cancel")
-     - style: "filled" | "outlined" | "text" (default "filled")
-     - icon: string (optional icon name)
-7. Divider
-   - Properties:
-     - thickness: number (default 1)
-     - color: string (optional)
+## Catalog Guidelines
+1. String Concatenation & Formatting: A2UI does not support binary operators like '+' or formatting symbols. To concatenate strings or dynamically inject data bindings into text, use `formatString("\${expression}")` or placeholder syntax:
+   `"text": "Hello \${/user/name}"` or `{"@path": "/user/name"}`.
+2. Strict Hierarchy: You must strictly adhere to requested component nesting. Place child components inside container `children` or `child` arrays using their IDs.
+3. Supported Message Types:
+   - `createSurface`: defines `surfaceId`, `catalogId`, and optional initial `components` and `dataModel`.
+   - `updateComponents`: updates or supplies `components` list.
+   - `updateDataModel`: updates or supplies key-value values for JSON Pointer binding.
 
-Data Model Binding:
-Properties supporting dynamic binding resolve values via JSON Pointers against `updateDataModel`:
-- Map syntax: {"text": {"@path": "/status"}}
-- String syntax: {"text": "@path: /status"}
-If data model is {"status": "Active"}, the property dynamically resolves to "Active".
+## Supported Components (18 Components)
+1. Text
+   - component: "Text"
+   - text: string or dynamic binding (e.g. "Hello \${/name}" or {"@path": "/name"})
+   - variant: "headline" | "title" | "body" | "caption" | "label" (default "body")
+   - weight: number (CSS flex-grow weight if inside Row/Column)
+2. Image
+   - component: "Image"
+   - url: string (HTTPS image URL) or dynamic binding
+   - description: string (accessibility text)
+   - fit: "cover" | "contain" | "fill" | "none"
+   - aspectRatio: number
+3. Icon
+   - component: "Icon"
+   - icon: string (e.g. "check", "warning", "info", "star", "flight", "close", "settings", "search", "send", "refresh", "menu")
+   - color: "primary" | "secondary" | "error" | "success" | "warning" | hex code
+   - size: number (default 24)
+4. Video
+   - component: "Video"
+   - url: string (video URL)
+   - autoPlay: boolean
+   - controls: boolean
+5. AudioPlayer
+   - component: "AudioPlayer"
+   - url: string (audio URL)
+   - title: string
+6. Row
+   - component: "Row"
+   - children: list of strings (IDs of child components)
+   - spacing: number (default 8)
+   - alignment: "start" | "center" | "end" | "spaceBetween"
+7. Column
+   - component: "Column"
+   - children: list of strings (IDs of child components)
+   - spacing: number (default 8)
+   - alignment: "start" | "center" | "end" | "stretch"
+8. List
+   - component: "List"
+   - children: list of strings (child IDs) OR dynamic template object: `{"path": "/items", "componentId": "templateItem"}`
+   - direction: "vertical" | "horizontal"
+9. Card
+   - component: "Card"
+   - child: string (ID of root child component)
+   - elevation: number (default 1)
+   - padding: number (default 12)
+10. Tabs
+    - component: "Tabs"
+    - tabs: list of objects `[{"label": "Overview", "child": "tab1_content"}, {"label": "Details", "child": "tab2_content"}]`
+11. Modal
+    - component: "Modal"
+    - trigger: string (ID of component that triggers modal)
+    - content: string (ID of modal content component)
+    - title: string
+12. Divider
+    - component: "Divider"
+    - thickness: number (default 1)
+    - color: string
+13. Button
+    - component: "Button"
+    - label: string or dynamic binding
+    - action: string (event action ID sent on tap, e.g. "submit_order")
+    - style: "filled" | "outlined" | "text" (default "filled")
+    - icon: string (optional icon name)
+    - disabled: boolean
+14. TextField
+    - component: "TextField"
+    - label: string
+    - placeholder: string
+    - value: string or dynamic binding `{"@path": "/form/name"}`
+    - variant: "text" | "number" | "password" | "multiline"
+    - onChange: string (action ID or bound path)
+15. CheckBox
+    - component: "CheckBox"
+    - label: string
+    - value: boolean or dynamic binding
+    - onChange: string (action ID)
+16. ChoicePicker
+    - component: "ChoicePicker"
+    - label: string
+    - options: list of `{"label": "Option A", "value": "a"}`
+    - value: string
+    - onChange: string (action ID)
+17. Slider
+    - component: "Slider"
+    - label: string
+    - value: number or dynamic binding
+    - min: number (default 0)
+    - max: number (default 100)
+    - step: number (default 1)
+18. DateTimeInput
+    - component: "DateTimeInput"
+    - label: string
+    - variant: "date" | "time" | "datetime"
+    - value: string
 
-Example `send_a2ui` Dispatch:
+## Supported Catalog Functions (14 Functions)
+- `formatString`: interpolates \${/path} in string templates.
+- `formatNumber`: formats numbers with decimal places.
+- `formatCurrency`: formats currency with symbol.
+- `formatDate`: formats timestamp to standard date.
+- `pluralize`: returns singular or plural string depending on count.
+- `required`, `regex`, `length`, `numeric`, `email`: validation checks on input fields.
+- `openUrl`: opens a URL in system browser.
+- `and`, `or`, `not`: boolean logic combinators.
+
+## Example `send_a2ui` Dispatches
+
+### Example 1: Interactive List / Card Form
 ```xml
 <system_call>
 {
   "command": "send_a2ui",
   "parameters": {
-    "text": "Here is your flight confirmation card:",
+    "text": "Here is your requested card:",
     "messages": [
       {
         "version": "1.0",
         "createSurface": {
-          "surfaceId": "flight_card_01",
-          "catalogId": "basic/v1"
-        }
-      },
-      {
-        "version": "1.0",
-        "updateDataModel": {
-          "surfaceId": "flight_card_01",
-          "value": {
-            "flightCode": "LH 402",
-            "status": "Confirmed",
-            "departure": "10:45 AM"
-          }
-        }
-      },
-      {
-        "version": "1.0",
-        "updateComponents": {
-          "surfaceId": "flight_card_01",
+          "surfaceId": "main",
+          "catalogId": "basic/v1",
           "components": [
             {
               "id": "root",
-              "type": "Card",
-              "properties": {"child": "col_main", "elevation": 2}
+              "component": "Card",
+              "child": "col_main"
             },
             {
               "id": "col_main",
-              "type": "Column",
-              "properties": {"children": ["header_row", "div_sep", "time_text", "btn_confirm"]}
+              "component": "Column",
+              "children": ["header_row", "div_sep", "details_text", "action_btn"]
             },
             {
               "id": "header_row",
-              "type": "Row",
-              "properties": {"children": ["flight_icon", "code_text"]}
+              "component": "Row",
+              "children": ["icon_status", "title_text"]
             },
             {
-              "id": "flight_icon",
-              "type": "Icon",
-              "properties": {"icon": "flight", "color": "primary"}
+              "id": "icon_status",
+              "component": "Icon",
+              "icon": "check_circle",
+              "color": "success"
             },
             {
-              "id": "code_text",
-              "type": "Text",
-              "properties": {"text": {"@path": "/flightCode"}, "style": "title", "fontWeight": "bold"}
+              "id": "title_text",
+              "component": "Text",
+              "text": "\${/country/name} Ranking",
+              "variant": "title"
             },
             {
               "id": "div_sep",
-              "type": "Divider",
-              "properties": {"thickness": 1}
+              "component": "Divider"
             },
             {
-              "id": "time_text",
-              "type": "Text",
-              "properties": {"text": {"@path": "/departure"}, "style": "body"}
+              "id": "details_text",
+              "component": "Text",
+              "text": "GDP per capita: \${/country/gdp}",
+              "variant": "body"
             },
             {
-              "id": "btn_confirm",
-              "type": "Button",
-              "properties": {"label": "Check In", "action": "check_in_flight", "style": "filled"}
+              "id": "action_btn",
+              "component": "Button",
+              "label": "View Full Details",
+              "action": "view_details",
+              "style": "filled"
             }
-          ]
+          ],
+          "dataModel": {
+            "country": {
+              "name": "Luxembourg",
+              "gdp": "\$143,320"
+            }
+          }
         }
       }
     ]
@@ -142,9 +241,13 @@ Example `send_a2ui` Dispatch:
 ```
 ''';
 
-/// Resolves RFC 6901 JSON Pointers against a given [dataModel] dictionary.
+/// Resolves RFC 6901 JSON Pointers (`{"@path": "/..."}`) and string interpolation (`${/path}`)
+/// against an active [dataModel] dictionary.
 class JsonPointerResolver {
-  /// Resolves an arbitrary property value which may be a literal String, int, or dynamic `@path` pointer.
+  static final RegExp _interpolationRegex = RegExp(r'\$\{([^}]+)\}');
+
+  /// Resolves an arbitrary property value which may be a literal String, int, dynamic `@path` pointer,
+  /// or interpolated String with `${/pointer}` tags.
   static dynamic resolve(dynamic value, Map<String, dynamic> dataModel) {
     if (value == null) return null;
 
@@ -152,6 +255,9 @@ class JsonPointerResolver {
       if (value.containsKey('@path')) {
         final path = value['@path']?.toString() ?? '';
         return resolvePointer(path, dataModel);
+      }
+      if (value.containsKey('@call')) {
+        return _evaluateCall(value, dataModel);
       }
     }
 
@@ -163,6 +269,16 @@ class JsonPointerResolver {
       } else if (trimmed.startsWith('@path')) {
         final path = trimmed.substring(5).trim();
         return resolvePointer(path, dataModel);
+      }
+
+      // Check for ${/pointer} or ${pointer} string interpolation
+      if (_interpolationRegex.hasMatch(value)) {
+        return value.replaceAllMapped(_interpolationRegex, (match) {
+          final expr = match.group(1)?.trim() ?? '';
+          final pointer = expr.startsWith('/') ? expr : '/$expr';
+          final resolved = resolvePointer(pointer, dataModel);
+          return resolved?.toString() ?? '';
+        });
       }
     }
 
@@ -209,5 +325,28 @@ class JsonPointerResolver {
 
   static String _unescapeSegment(String segment) {
     return segment.replaceAll('~1', '/').replaceAll('~0', '~');
+  }
+
+  static dynamic _evaluateCall(Map callMap, Map<String, dynamic> dataModel) {
+    final functionName = callMap['@call']?.toString();
+    final args = callMap['args'] is Map ? Map<String, dynamic>.from(callMap['args'] as Map) : <String, dynamic>{};
+
+    switch (functionName) {
+      case 'formatString':
+        final val = args['value'];
+        return resolve(val, dataModel)?.toString() ?? '';
+      case 'formatCurrency':
+        final rawVal = resolve(args['value'], dataModel);
+        final numVal = num.tryParse(rawVal?.toString() ?? '') ?? 0;
+        final currency = args['currency']?.toString() ?? '\$';
+        return '$currency${numVal.toStringAsFixed(2)}';
+      case 'formatNumber':
+        final rawVal = resolve(args['value'], dataModel);
+        final decimals = args['decimals'] is int ? args['decimals'] as int : 0;
+        final numVal = num.tryParse(rawVal?.toString() ?? '');
+        return numVal != null ? numVal.toStringAsFixed(decimals) : rawVal?.toString() ?? '';
+      default:
+        return args['value'] != null ? resolve(args['value'], dataModel) : null;
+    }
   }
 }

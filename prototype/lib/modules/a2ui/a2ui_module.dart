@@ -1,6 +1,7 @@
 import '../../core/models/command_definition.dart';
 import '../../core/models/system_response.dart';
 import '../base/harness_module.dart';
+import 'catalogs/a2ui_catalog.dart';
 import 'catalogs/basic_v1_catalog.dart';
 
 /// Agent-to-User Interface (A2UI) Module.
@@ -8,8 +9,12 @@ import 'catalogs/basic_v1_catalog.dart';
 /// Implements FEAT-006:
 /// - Provides `load_a2ui_catalog` to transiently inject UI component schemas into working context.
 /// - Provides `send_a2ui` to dispatch declarative interactive A2UI surfaces to the chat view.
-/// - Supports on-demand component catalog `basic/v1`.
+/// - Supports extensible catalog registry with built-in `basic/v1` catalog.
 class A2UIModule extends HarnessModule {
+  A2UIModule() {
+    BasicV1Catalog.register();
+  }
+
   @override
   String get moduleName => 'a2ui';
 
@@ -81,17 +86,22 @@ class A2UIModule extends HarnessModule {
     }
 
     final cleanCatalog = catalog.trim();
-    if (cleanCatalog == 'basic/v1') {
+    final catalogDef = A2UICatalogRegistry.instance.get(cleanCatalog);
+    if (catalogDef != null) {
       return SystemResponse.success(
         command: 'load_a2ui_catalog',
-        data: kBasicV1CatalogDocumentation,
+        data: catalogDef.documentation,
       );
     }
+
+    final available = A2UICatalogRegistry.instance.allCatalogs
+        .map((c) => c.aliases.isNotEmpty ? c.aliases.first : c.catalogId)
+        .join(', ');
 
     return SystemResponse.error(
       command: 'load_a2ui_catalog',
       errorMessage:
-          'Unsupported catalog "$cleanCatalog". Available catalogs: basic/v1',
+          'Unsupported catalog "$cleanCatalog". Available catalogs: $available',
     );
   }
 
@@ -110,3 +120,4 @@ class A2UIModule extends HarnessModule {
     );
   }
 }
+

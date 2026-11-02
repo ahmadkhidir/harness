@@ -1,6 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:harness/modules/a2ui/a2ui_module.dart';
+import 'package:harness/modules/a2ui/catalogs/a2ui_catalog.dart';
 import 'package:harness/modules/a2ui/catalogs/basic_v1_catalog.dart';
+
+class CustomTestCatalog implements A2UICatalog {
+  @override
+  String get catalogId => 'https://example.com/custom/catalog.json';
+  @override
+  List<String> get aliases => const ['custom/v1'];
+  @override
+  String get title => 'Custom Test Catalog';
+  @override
+  String get description => 'A test catalog';
+  @override
+  String get documentation => '# Custom Catalog Documentation';
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -18,20 +32,31 @@ void main() {
       expect(cmdNames, containsAll(['load_a2ui_catalog', 'send_a2ui']));
     });
 
-    test('load_a2ui_catalog returns documentation for basic/v1', () async {
-      final response = await a2ui.executeCommand('load_a2ui_catalog', {
+    test('load_a2ui_catalog returns documentation for basic/v1 and canonical URI', () async {
+      final responseAlias = await a2ui.executeCommand('load_a2ui_catalog', {
         'catalog': 'basic/v1',
       });
+      expect(responseAlias.isSuccess, isTrue);
+      expect(responseAlias.data, contains('A2UI Catalog: basic/v1'));
+      expect(responseAlias.data, contains('Card'));
+      expect(responseAlias.data, contains('TextField'));
+      expect(responseAlias.data, contains('formatCurrency'));
 
+      final responseCanonical = await a2ui.executeCommand('load_a2ui_catalog', {
+        'catalog': 'https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json',
+      });
+      expect(responseCanonical.isSuccess, isTrue);
+      expect(responseCanonical.data, contains('A2UI Catalog: basic/v1'));
+    });
+
+    test('A2UICatalogRegistry supports dynamic custom catalog registration', () async {
+      A2UICatalogRegistry.instance.register(CustomTestCatalog());
+
+      final response = await a2ui.executeCommand('load_a2ui_catalog', {
+        'catalog': 'custom/v1',
+      });
       expect(response.isSuccess, isTrue);
-      expect(response.data, contains('A2UI Catalog: basic/v1'));
-      expect(response.data, contains('Card'));
-      expect(response.data, contains('Column'));
-      expect(response.data, contains('Row'));
-      expect(response.data, contains('Text'));
-      expect(response.data, contains('Icon'));
-      expect(response.data, contains('Button'));
-      expect(response.data, contains('Divider'));
+      expect(response.data, contains('# Custom Catalog Documentation'));
     });
 
     test('load_a2ui_catalog returns structured error for unsupported catalog', () async {
@@ -99,5 +124,30 @@ void main() {
       expect(JsonPointerResolver.resolve('Plain Literal Text', dataModel), equals('Plain Literal Text'));
       expect(JsonPointerResolver.resolve(42, dataModel), equals(42));
     });
+
+    test('JsonPointerResolver resolves \${/path} string interpolation and @call functions', () {
+      final dataModel = {
+        'country': {'name': 'Luxembourg', 'gdp': 143320},
+        'user': {'first': 'Alice', 'last': 'Smith'},
+      };
+
+      // String interpolation
+      expect(
+        JsonPointerResolver.resolve('Country: \${/country/name} Ranking', dataModel),
+        equals('Country: Luxembourg Ranking'),
+      );
+      expect(
+        JsonPointerResolver.resolve('Welcome \${/user/first} \${/user/last}!', dataModel),
+        equals('Welcome Alice Smith!'),
+      );
+
+      // Function call: formatCurrency
+      final currencyCall = {
+        '@call': 'formatCurrency',
+        'args': {'value': {'@path': '/country/gdp'}, 'currency': '\$'},
+      };
+      expect(JsonPointerResolver.resolve(currencyCall, dataModel), equals('\$143320.00'));
+    });
   });
 }
+
