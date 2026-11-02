@@ -12,6 +12,7 @@ import 'core/utils/file_system_manager.dart';
 import 'data/database/app_database.dart';
 import 'data/secure_storage/key_storage_service.dart';
 import 'data/services/session_service.dart';
+import 'modules/a2ui/a2ui_module.dart';
 import 'modules/skills/skills_module.dart';
 import 'modules/storage/storage_module.dart';
 import 'presentation/bloc/harness_session_bloc.dart';
@@ -59,6 +60,7 @@ void main() async {
     final router = CommandRouter();
     router.registerModule(SkillsModule());
     router.registerModule(StorageModule());
+    router.registerModule(A2UIModule());
     final contextBuilder = ContextBuilder();
     engine = HarnessEngine(
       router: router,
@@ -71,6 +73,7 @@ void main() async {
     final router = CommandRouter();
     router.registerModule(SkillsModule());
     router.registerModule(StorageModule());
+    router.registerModule(A2UIModule());
     final contextBuilder = ContextBuilder();
     final modelProvider = ModelProviderFactory.create(
       config: ProviderConfig(
@@ -132,6 +135,9 @@ class _HarnessAppState extends State<HarnessApp> {
       _engine = widget.engine!;
     } else {
       final router = CommandRouter();
+      router.registerModule(SkillsModule());
+      router.registerModule(StorageModule());
+      router.registerModule(A2UIModule());
       final contextBuilder = ContextBuilder();
       final defaultProvider = ModelProviderFactory.create(
         config: ProviderConfig(
