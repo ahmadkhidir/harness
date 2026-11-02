@@ -158,6 +158,103 @@ Internal scratchpad note: user requested summary.
       expect(output.hasSystemCalls, isTrue);
       expect(output.systemCalls.first.command, 'malformed_json_error');
     });
+
+    test('strips markdown code fences (```json and ```xml) inside system_call block', () {
+      const raw = '''
+<system_call>
+```json
+{
+  "command": "send_a2ui",
+  "parameters": {
+    "text": "Card:",
+    "messages": [
+      {
+        "version": "1.0",
+        "createSurface": {"surfaceId": "card_fenced", "catalogId": "basic/v1"}
+      }
+    ]
+  }
+}
+```
+</system_call>
+''';
+      final output = SystemCallParser.parse(raw);
+      expect(output.hasSystemCalls, isFalse);
+      expect(output.hasExplicitDelivery, isTrue);
+      expect(output.explicitA2UIPayload, isNotNull);
+      expect(output.explicitTextMessage, equals('Card:'));
+    });
+
+    test('cleans trailing commas before closing braces and brackets in system_call', () {
+      const raw = '''
+<system_call>
+{
+  "command": "send_a2ui",
+  "parameters": {
+    "messages": [
+      {
+        "version": "1.0",
+        "createSurface": {
+          "surfaceId": "card_commas",
+          "components": [
+            {"id": "t1", "component": "Text", "text": "Hello",},
+          ],
+        },
+      },
+    ],
+  },
+}
+</system_call>
+''';
+      final output = SystemCallParser.parse(raw);
+      expect(output.hasSystemCalls, isFalse);
+      expect(output.hasExplicitDelivery, isTrue);
+      expect(output.explicitA2UIPayload, isNotNull);
+      expect(output.explicitA2UIPayload?['messages'], isNotEmpty);
+    });
+
+    test('reports exact line, column, and visual snippet on genuine syntax errors', () {
+      const raw = '''
+<system_call>
+{
+  "command": "load_skill",
+  "parameters": {
+    broken json without colon
+  }
+}
+</system_call>
+''';
+      final output = SystemCallParser.parse(raw);
+      expect(output.hasSystemCalls, isTrue);
+      expect(output.systemCalls.first.command, equals('malformed_json_error'));
+      final errorMsg = output.systemCalls.first.parameters['error']?.toString();
+      expect(errorMsg, contains('JSON Syntax Error at line'));
+      expect(errorMsg, contains('|'));
+      expect(errorMsg, contains('^'));
+    });
+
+    test('resiliently salvages send_a2ui messages from unclosed or truncated payload', () {
+      const raw = '''
+<system_call>
+{
+  "command": "send_a2ui",
+  "parameters": {
+    "text": "Partial flight card:",
+    "messages": [
+      {
+        "version": "1.0",
+        "createSurface": {
+          "surfaceId": "flight_card",
+          "catalogId": "basic/v1"
+        }
+      }
+''';
+      final output = SystemCallParser.parse(raw);
+      expect(output.hasExplicitDelivery, isTrue);
+      expect(output.explicitA2UIPayload, isNotNull);
+      expect(output.explicitTextMessage, equals('Partial flight card:'));
+      expect(output.explicitA2UIPayload?['messages'], isNotEmpty);
+    });
   });
 }
 

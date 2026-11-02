@@ -70,3 +70,4 @@ class A2UICatalogRegistry {
     _catalogs.clear();
   }
 }
+

@@ -164,10 +164,10 @@ Unified declarative UI component catalog for mobile Flutter client rendering. Wh
 - `openUrl`: opens a URL in system browser.
 - `and`, `or`, `not`: boolean logic combinators.
 
-## Example `send_a2ui` Dispatches
+## Example `send_a2ui` Dispatch
 
-### Example 1: Interactive List / Card Form
-```xml
+Emit `<system_call>` directly (do NOT wrap it in markdown code fences):
+
 <system_call>
 {
   "command": "send_a2ui",
@@ -237,7 +237,6 @@ Unified declarative UI component catalog for mobile Flutter client rendering. Wh
   }
 }
 </system_call>
-```
 ''';
 
 /// Resolves RFC 6901 JSON Pointers (`{"@path": "/..."}`) and string interpolation (`${/path}`)
