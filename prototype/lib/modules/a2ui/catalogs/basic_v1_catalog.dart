@@ -66,8 +66,6 @@ Unified declarative UI component catalog for mobile Flutter client rendering. Wh
    - variant: "headline" | "title" | "body" | "caption" | "label" (default "body")
    - fontWeight: "normal" | "medium" | "bold"
    - color: "primary" | "secondary" | "error" | "success" | "warning" | hex code
-   - maxLines: number (optional; limits displayed lines)
-   - overflow: "ellipsis" | "fade" | "clip" | "visible" (default "ellipsis" when maxLines is set)
 2. Image
    - component: "Image"
    - url: string (HTTPS image URL) or dynamic binding
@@ -93,36 +91,28 @@ Unified declarative UI component catalog for mobile Flutter client rendering. Wh
    - children: list of strings (IDs of child components)
    - spacing: number (default 8)
    - alignment: "start" | "center" | "end" | "spaceBetween"
-   - scrollable: boolean (default true; automatically wraps the Row in a horizontal SingleChildScrollView to prevent overflow)
-   - wrap: boolean (default false; if true, wraps children into multi-line Wrap layout instead of horizontal scroll)
 7. Column
    - component: "Column"
    - children: list of strings (IDs of child components)
    - spacing: number (default 8)
    - alignment: "start" | "center" | "end" | "stretch"
-   - scrollable: boolean (default false; wraps Column in a vertical SingleChildScrollView)
-   - maxHeight: number (optional; constraints max height with scrolling)
 8. List
    - component: "List"
    - children: list of strings (child IDs) OR dynamic template object: `{"path": "/items", "componentId": "templateItem"}`
-   - direction: "vertical" | "horizontal" (horizontal lists automatically wrap in horizontal SingleChildScrollView)
-   - scrollable: boolean (default false for vertical; true for horizontal)
-   - maxHeight: number (optional; caps vertical height with scroll view)
+   - direction: "vertical" | "horizontal"
 9. Card
    - component: "Card"
    - child: string (ID of root child component)
    - elevation: number (default 1)
    - padding: number (default 12)
-   - scrollable: boolean (optional; enables scrolling for long inner content)
-   - maxHeight: number (optional; limits height with scroll view)
 10. Tabs
     - component: "Tabs"
-    - tabs: list of objects `[{"label": "Overview", "child": "tab1_content"}, {"label": "Details", "child": "tab2_content"}]` (tab bar automatically scrolls horizontally without overflow)
+    - tabs: list of objects `[{"label": "Overview", "child": "tab1_content"}, {"label": "Details", "child": "tab2_content"}]`
 11. Modal
     - component: "Modal"
     - trigger: string (ID of component that triggers modal)
     - content: string (ID of modal content component)
-    - title: string (modal content is automatically wrapped in a bounded SingleChildScrollView)
+    - title: string
 12. Divider
     - component: "Divider"
     - thickness: number (default 1)
