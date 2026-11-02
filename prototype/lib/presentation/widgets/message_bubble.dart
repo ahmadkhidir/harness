@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:intl/intl.dart';
 import '../../core/models/turn.dart';
+import '../../modules/a2ui/widgets/a2ui_surface_view.dart';
 import 'tool_calls_bottom_sheet.dart';
 
 /// Renders a conversational chat bubble for user prompts and agent responses.
@@ -119,32 +120,59 @@ class MessageBubble extends StatelessWidget {
                         color: textColor,
                       ),
                     )
-                  : MarkdownBody(
-                      data: turn.text ?? '',
-                      selectable: true,
-                      styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-                        p: theme.textTheme.bodyMedium?.copyWith(
-                          color: textColor,
-                        ),
-                        code: theme.textTheme.bodySmall?.copyWith(
-                          fontFamily: 'monospace',
-                          backgroundColor:
-                              theme.colorScheme.surface.withValues(alpha: 0.7),
-                        ),
-                        codeblockDecoration: BoxDecoration(
-                          color:
-                              theme.colorScheme.surface.withValues(alpha: 0.9),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: theme.colorScheme.outlineVariant,
-                          ),
-                        ),
-                      ),
-                    ),
+                  : _buildAgentContent(context, theme, textColor),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAgentContent(
+    BuildContext context,
+    ThemeData theme,
+    Color textColor,
+  ) {
+    final styleSheet = MarkdownStyleSheet.fromTheme(theme).copyWith(
+      p: theme.textTheme.bodyMedium?.copyWith(
+        color: textColor,
+      ),
+      code: theme.textTheme.bodySmall?.copyWith(
+        fontFamily: 'monospace',
+        backgroundColor: theme.colorScheme.surface.withValues(alpha: 0.7),
+      ),
+      codeblockDecoration: BoxDecoration(
+        color: theme.colorScheme.surface.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant,
+        ),
+      ),
+    );
+
+    if (turn.isA2UI) {
+      final hasText = turn.text != null && turn.text!.trim().isNotEmpty;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (hasText) ...[
+            MarkdownBody(
+              data: turn.text!.trim(),
+              selectable: true,
+              styleSheet: styleSheet,
+            ),
+            const SizedBox(height: 8),
+          ],
+          A2UISurfaceView(payload: turn.a2uiPayload),
+        ],
+      );
+    }
+
+    return MarkdownBody(
+      data: turn.text ?? '',
+      selectable: true,
+      styleSheet: styleSheet,
     );
   }
 }
