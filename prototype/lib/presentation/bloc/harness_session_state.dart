@@ -1,42 +1,11 @@
 import 'package:equatable/equatable.dart';
-import '../../core/models/system_call.dart';
+import '../../core/models/tool_execution_record.dart';
 import '../../core/models/turn.dart';
 
-/// Real-time status indicator model for an individual tool system call.
-class ToolExecutionIndicator extends Equatable {
-  /// The system call being executed.
-  final SystemCall call;
+export '../../core/models/tool_execution_record.dart';
 
-  /// Current execution status: `'running'`, `'success'`, or `'error'`.
-  final String status;
-
-  /// Optional error description when status is error.
-  final String? errorMessage;
-
-  const ToolExecutionIndicator({
-    required this.call,
-    required this.status,
-    this.errorMessage,
-  });
-
-  bool get isRunning => status == 'running';
-  bool get isSuccess => status == 'success';
-  bool get isError => status == 'error';
-
-  ToolExecutionIndicator copyWith({
-    String? status,
-    String? errorMessage,
-  }) {
-    return ToolExecutionIndicator(
-      call: call,
-      status: status ?? this.status,
-      errorMessage: errorMessage ?? this.errorMessage,
-    );
-  }
-
-  @override
-  List<Object?> get props => [call.command, call.parameters, status, errorMessage];
-}
+/// Type alias maintaining full backward compatibility with previous ToolExecutionIndicator usages.
+typedef ToolExecutionIndicator = ToolExecutionRecord;
 
 /// Base state class for [HarnessSessionBloc].
 abstract class HarnessSessionState extends Equatable {

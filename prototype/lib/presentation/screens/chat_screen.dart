@@ -14,6 +14,7 @@ import '../bloc/model_switcher_state.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/system_call_pill.dart';
+import '../widgets/tool_calls_bottom_sheet.dart';
 
 /// The primary interaction screen where users input tasks, monitor parallel tool runs,
 /// and review agent responses.
@@ -414,45 +415,42 @@ class _ChatScreenState extends State<ChatScreen> {
                               horizontal: 16,
                               vertical: 8,
                             ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                            child: Row(
                               children: [
-                                Row(
-                                  children: [
-                                    const SizedBox(
-                                      width: 14,
-                                      height: 14,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      executingState?.statusMessage ??
-                                          'Thinking...',
-                                      style: theme.textTheme.labelMedium
-                                          ?.copyWith(
-                                            fontStyle: FontStyle.italic,
-                                            color: theme.colorScheme.outline,
-                                          ),
-                                    ),
-                                  ],
+                                const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    executingState?.statusMessage ??
+                                        'Thinking...',
+                                    style: theme.textTheme.labelMedium
+                                        ?.copyWith(
+                                          fontStyle: FontStyle.italic,
+                                          color: theme.colorScheme.outline,
+                                        ),
+                                  ),
                                 ),
                                 if (executingState != null &&
-                                    executingState
-                                        .toolIndicators
-                                        .isNotEmpty) ...[
-                                  const SizedBox(height: 8),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 6,
-                                    children: executingState.toolIndicators.map(
-                                      (ind) {
-                                        return SystemCallPill(indicator: ind);
-                                      },
-                                    ).toList(),
+                                    executingState.toolIndicators.isNotEmpty)
+                                  IconButton(
+                                    key: const ValueKey(
+                                      'executing_tool_calls_button',
+                                    ),
+                                    icon: const Icon(Icons.expand_more),
+                                    tooltip:
+                                        'Show tool calls (${executingState.toolIndicators.length})',
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () => showToolCallsBottomSheet(
+                                      context,
+                                      executingState.toolIndicators,
+                                    ),
                                   ),
-                                ],
                               ],
                             ),
                           );

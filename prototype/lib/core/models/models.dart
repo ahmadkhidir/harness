@@ -13,4 +13,5 @@ export 'session.dart';
 export 'skill_metadata.dart';
 export 'system_call.dart';
 export 'system_response.dart';
+export 'tool_execution_record.dart';
 export 'turn.dart';

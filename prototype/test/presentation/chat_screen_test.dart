@@ -20,7 +20,6 @@ import 'package:harness/presentation/screens/placeholder_screen.dart';
 import 'package:harness/presentation/screens/settings_screen.dart';
 import 'package:harness/presentation/widgets/empty_state.dart';
 import 'package:harness/presentation/widgets/message_bubble.dart';
-import 'package:harness/presentation/widgets/system_call_pill.dart';
 import 'package:harness/providers/model_provider.dart';
 
 class MockModelProvider extends ModelProvider {
@@ -283,7 +282,7 @@ void main() {
     switcherBloc.close();
   });
 
-  testWidgets('Displays live execution status and SystemCallPill tray during run',
+  testWidgets('Displays live execution status with collapse button opening tool modal, persisting after turn finishes',
       (WidgetTester tester) async {
     final switcherBloc = ModelSwitcherBloc(
       database: database,
@@ -304,14 +303,14 @@ void main() {
     }
 
     final activeCall = SystemCall(
-      command: 'web_search',
-      parameters: const {'query': 'Flutter'},
+      command: 'load_skill',
+      parameters: const {'skill_name': 'story_writer'},
     );
 
     sessionBloc.emit(HarnessTurnExecuting(
       sessionId: 'sess_test_1',
       turns: const [],
-      statusMessage: 'Searching the web...',
+      statusMessage: 'Executing load_skill...',
       toolIndicators: [
         ToolExecutionIndicator(
           call: activeCall,
@@ -323,14 +322,73 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
     }
 
-    // Verify live progress spinner, status message, and pill badge
-    expect(find.text('Searching the web...'), findsOneWidget);
+    // Verify live progress spinner, status message, and collapse icon button (NOT the old inline pill)
+    expect(find.text('Executing load_skill...'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsWidgets);
-    expect(find.byType(SystemCallPill), findsOneWidget);
-    expect(find.text('web_search'), findsOneWidget);
+    expect(find.byKey(const ValueKey('executing_tool_calls_button')), findsOneWidget);
 
     // Verify send button toggled to stop execution button
     expect(find.byIcon(Icons.stop_circle_outlined), findsOneWidget);
+
+    // Tap collapse icon button to open bottom modal sheet during execution
+    await tester.tap(find.byKey(const ValueKey('executing_tool_calls_button')));
+    for (int i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    // Verify modal bottom sheet opens and displays command name, parameters, and running status
+    expect(find.text('Tool Executions'), findsOneWidget);
+    expect(find.text('load_skill'), findsOneWidget);
+    expect(find.textContaining('story_writer'), findsOneWidget);
+    expect(find.text('Running'), findsOneWidget);
+
+    // Close modal
+    await tester.tap(find.byIcon(Icons.close));
+    for (int i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    // Now emit turn completed with the tool execution recorded
+    final finishedTurn = Turn(
+      id: 'turn_agent_1',
+      sessionId: 'sess_test_1',
+      timestamp: DateTime.now().toUtc(),
+      sender: 'agent',
+      contentType: 'text',
+      text: 'Story skill loaded successfully!',
+      toolCalls: [
+        ToolExecutionRecord(
+          call: activeCall,
+          status: 'success',
+          output: 'Skill loaded',
+        ),
+      ],
+    );
+
+    sessionBloc.emit(HarnessSessionReady(
+      sessionId: 'sess_test_1',
+      turns: [finishedTurn],
+    ));
+    await tester.pumpAndSettle();
+
+    // Verify the collapse icon button is STILL PRESENT on the turn after finish
+    final turnButtonFinder = find.byKey(ValueKey('turn_tool_calls_button_${finishedTurn.id}'));
+    expect(turnButtonFinder, findsOneWidget);
+
+    // Tap the icon button on the finished turn
+    await tester.tap(turnButtonFinder);
+    await tester.pumpAndSettle();
+
+    // Verify modal bottom sheet opens for finished turn showing command and success status
+    expect(find.text('Tool Executions'), findsOneWidget);
+    expect(find.text('load_skill'), findsOneWidget);
+    expect(find.textContaining('story_writer'), findsOneWidget);
+    expect(find.text('Success'), findsOneWidget);
+    expect(find.textContaining('Skill loaded'), findsOneWidget);
+
+    // Close modal
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pumpAndSettle();
 
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pumpWidget(const SizedBox());

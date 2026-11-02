@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:intl/intl.dart';
 import '../../core/models/turn.dart';
+import 'tool_calls_bottom_sheet.dart';
 
 /// Renders a conversational chat bubble for user prompts and agent responses.
 ///
@@ -66,6 +67,24 @@ class MessageBubble extends StatelessWidget {
                   color: theme.colorScheme.outline.withValues(alpha: 0.8),
                 ),
               ),
+              if (!isUser && turn.toolCalls.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  key: ValueKey('turn_tool_calls_button_${turn.id}'),
+                  icon: const Icon(Icons.expand_more),
+                  iconSize: 18,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 24,
+                    minHeight: 24,
+                  ),
+                  tooltip: 'Show tool calls (${turn.toolCalls.length})',
+                  onPressed: () => showToolCallsBottomSheet(
+                    context,
+                    turn.toolCalls,
+                  ),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 4),

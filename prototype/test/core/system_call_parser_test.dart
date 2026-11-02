@@ -107,6 +107,57 @@ Internal scratchpad note: user requested summary.
       expect(output.systemCalls.length, 1);
       expect(output.systemCalls.first.command, 'malformed_json_error');
     });
+
+    test('extracts explicit send_message from unclosed <system_call> tag without closing tag', () {
+      const raw = '<system_call>{"command": "send_message", "parameters": {"text": "### Scene 1: The Golden Key"}}';
+      final output = SystemCallParser.parse(raw);
+
+      expect(output.hasExplicitDelivery, isTrue);
+      expect(output.explicitTextMessage, '### Scene 1: The Golden Key');
+      expect(output.hasSystemCalls, isFalse);
+      expect(output.explicitTextMessage?.contains('<system_call>'), isFalse);
+    });
+
+    test('recovers send_message with unclosed JSON string and braces without closing tag', () {
+      const raw = '<system_call>{"command": "send_message", "parameters": {"text": "### Scene 1: The Gold...';
+      final output = SystemCallParser.parse(raw);
+
+      expect(output.hasExplicitDelivery, isTrue);
+      expect(output.explicitTextMessage, startsWith('### Scene 1: The Gold'));
+      expect(output.hasSystemCalls, isFalse);
+      expect(output.explicitTextMessage?.contains('<system_call>'), isFalse);
+    });
+
+    test('extracts tool call from unclosed <system_call> tag without closing tag', () {
+      const raw = '<system_call>{"command": "load_skill", "parameters": {"skill_name": "story_writer"}}';
+      final output = SystemCallParser.parse(raw);
+
+      expect(output.hasSystemCalls, isTrue);
+      expect(output.systemCalls.length, 1);
+      expect(output.systemCalls.first.command, 'load_skill');
+      expect(output.systemCalls.first.parameters['skill_name'], 'story_writer');
+      expect(output.hasExplicitDelivery, isFalse);
+    });
+
+    test('recovers tool call with unclosed JSON brackets from unclosed <system_call>', () {
+      const raw = '<system_call>{"command": "load_skill", "parameters": {"skill_name": "story_writer"';
+      final output = SystemCallParser.parse(raw);
+
+      expect(output.hasSystemCalls, isTrue);
+      expect(output.systemCalls.length, 1);
+      expect(output.systemCalls.first.command, 'load_skill');
+      expect(output.systemCalls.first.parameters['skill_name'], 'story_writer');
+    });
+
+    test('prevents raw <system_call> from leaking into fallback explicit text', () {
+      const raw = '<system_call>gibberish: [[[ not json at all';
+      final output = SystemCallParser.parse(raw);
+
+      // Must NOT leak <system_call> into user text
+      expect(output.explicitTextMessage, isNull);
+      expect(output.hasSystemCalls, isTrue);
+      expect(output.systemCalls.first.command, 'malformed_json_error');
+    });
   });
 }
 

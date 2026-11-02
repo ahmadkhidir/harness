@@ -1,3 +1,5 @@
+import 'tool_execution_record.dart';
+
 /// Represents an individual interaction event recorded in a session's `turns.json` audit log.
 ///
 /// Serves as the authoritative source of truth for the Flutter chat UI.
@@ -30,6 +32,9 @@ class Turn {
   /// Total token consumption recorded for this turn.
   final int? tokenCount;
 
+  /// Structured records of tools executed during this turn.
+  final List<ToolExecutionRecord> toolCalls;
+
   Turn({
     required this.id,
     required this.sessionId,
@@ -40,6 +45,7 @@ class Turn {
     this.a2uiSurfaceId,
     this.modelUsed,
     this.tokenCount,
+    this.toolCalls = const [],
   }) {
     // Schema enum validations
     if (sender != 'user' && sender != 'agent') {
@@ -78,6 +84,8 @@ class Turn {
       if (a2uiSurfaceId != null) 'a2uiSurfaceId': a2uiSurfaceId,
       if (modelUsed != null) 'modelUsed': modelUsed,
       if (tokenCount != null) 'tokenCount': tokenCount,
+      if (toolCalls.isNotEmpty)
+        'toolCalls': toolCalls.map((t) => t.toJson()).toList(),
     };
   }
 
@@ -93,6 +101,12 @@ class Turn {
       a2uiSurfaceId: json['a2uiSurfaceId'] as String?,
       modelUsed: json['modelUsed'] as String?,
       tokenCount: json['tokenCount'] as int?,
+      toolCalls: json['toolCalls'] != null
+          ? (json['toolCalls'] as List)
+              .map((item) => ToolExecutionRecord.fromJson(
+                  Map<String, dynamic>.from(item as Map)))
+              .toList()
+          : const [],
     );
   }
 
@@ -107,6 +121,7 @@ class Turn {
     String? a2uiSurfaceId,
     String? modelUsed,
     int? tokenCount,
+    List<ToolExecutionRecord>? toolCalls,
   }) {
     return Turn(
       id: id ?? this.id,
@@ -118,6 +133,7 @@ class Turn {
       a2uiSurfaceId: a2uiSurfaceId ?? this.a2uiSurfaceId,
       modelUsed: modelUsed ?? this.modelUsed,
       tokenCount: tokenCount ?? this.tokenCount,
+      toolCalls: toolCalls ?? this.toolCalls,
     );
   }
 

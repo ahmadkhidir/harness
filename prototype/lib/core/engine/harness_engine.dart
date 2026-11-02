@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:uuid/uuid.dart';
 import '../../data/services/skills_service.dart';
-import '../models/turn.dart';
+import '../models/models.dart';
 import '../utils/file_system_manager.dart';
 import 'command_router.dart';
 import 'context_builder.dart';
@@ -75,6 +75,7 @@ class HarnessEngine {
     ];
 
     int turnsCount = 0;
+    final accumulatedToolCalls = <ToolExecutionRecord>[];
 
     while (turnsCount < maxTurns) {
       turnsCount++;
@@ -107,6 +108,7 @@ class HarnessEngine {
           text: parsed.explicitTextMessage,
           a2uiSurfaceId: parsed.explicitA2UIPayload?['messages']?[0]?['createSurface']?['surfaceId'],
           modelUsed: modelProvider.config.displayName,
+          toolCalls: List.unmodifiable(accumulatedToolCalls),
         );
 
         yield EngineTurnCompleted(turn);
@@ -115,7 +117,15 @@ class HarnessEngine {
 
       // Fallback: If no system calls and no delivery command, treat raw response as text delivery
       if (!parsed.hasSystemCalls) {
-        final text = rawResponse.trim();
+        var text = (parsed.explicitTextMessage ?? rawResponse).trim();
+        // Zero Leakage: Ensure raw <system_call> or <system_response> tags never leak to user
+        if (text.contains('<system_call>')) {
+          text = text.replaceAll(RegExp(r'<system_call>[\s\S]*'), '').trim();
+        }
+        if (text.isEmpty && parsed.scratchpadText.isNotEmpty) {
+          text = parsed.scratchpadText;
+        }
+
         final turn = Turn(
           id: 'turn_${const Uuid().v4().substring(0, 8)}',
           sessionId: sessionId,
@@ -124,14 +134,19 @@ class HarnessEngine {
           contentType: 'text',
           text: text,
           modelUsed: modelProvider.config.displayName,
+          toolCalls: List.unmodifiable(accumulatedToolCalls),
         );
 
         yield EngineTurnCompleted(turn);
         return;
       }
 
-      // Dispatched system calls: Notify start for all calls
+      // Dispatched system calls: Notify start for all calls and record
       for (final call in parsed.systemCalls) {
+        accumulatedToolCalls.add(ToolExecutionRecord(
+          call: call,
+          status: 'running',
+        ));
         yield EngineSystemCallStarted(call);
       }
 
@@ -143,9 +158,21 @@ class HarnessEngine {
         },
       );
 
-      // Notify completion with observations
+      // Notify completion with observations and update accumulated records
       for (int i = 0; i < parsed.systemCalls.length; i++) {
-        yield EngineSystemCallFinished(parsed.systemCalls[i], responses[i]);
+        final call = parsed.systemCalls[i];
+        final resp = responses[i];
+        final recordIdx = accumulatedToolCalls.lastIndexWhere(
+          (r) => r.call == call && r.isRunning,
+        );
+        if (recordIdx != -1) {
+          accumulatedToolCalls[recordIdx] = accumulatedToolCalls[recordIdx].copyWith(
+            status: resp.isSuccess ? 'success' : 'error',
+            errorMessage: resp.errorMessage,
+            output: resp.data,
+          );
+        }
+        yield EngineSystemCallFinished(call, resp);
       }
 
       // Record the model's raw generation (containing system calls) and the returned

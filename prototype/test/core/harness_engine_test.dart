@@ -122,6 +122,34 @@ I need to query data first.
       final completedEvent = events.last as EngineTurnCompleted;
       expect(completedEvent.turn.text, 'Retrieved data successfully: data_value_42');
       expect(completedEvent.turn.isAgent, isTrue);
+      expect(completedEvent.turn.toolCalls.length, 1);
+      expect(completedEvent.turn.toolCalls.first.call.command, 'fetch_data');
+      expect(completedEvent.turn.toolCalls.first.status, 'success');
+      expect(completedEvent.turn.toolCalls.first.output, 'data_value_42');
+    });
+
+    test('recovers from unclosed system_call tag without leaking raw tags', () async {
+      final unclosedProvider = ScriptedModelProvider(script: [
+        '<system_call>{"command": "send_message", "parameters": {"text": "### Scene 1: The Gold...',
+      ]);
+
+      final engine = HarnessEngine(
+        router: router,
+        contextBuilder: contextBuilder,
+        modelProvider: unclosedProvider,
+      );
+
+      final events = <EngineProgressEvent>[];
+      await for (final event in engine.executeTurn(
+        userPrompt: 'Tell me a scene',
+        sessionId: 'sess_unclosed',
+      )) {
+        events.add(event);
+      }
+
+      final completedEvent = events.last as EngineTurnCompleted;
+      expect(completedEvent.turn.text, startsWith('### Scene 1: The Gold'));
+      expect(completedEvent.turn.text?.contains('<system_call>'), isFalse);
     });
 
     test('halts and emits error when maxTurns limit is exceeded', () async {

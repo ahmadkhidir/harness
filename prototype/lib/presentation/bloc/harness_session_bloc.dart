@@ -129,6 +129,7 @@ class HarnessSessionBloc
             return ind.copyWith(
               status: progress.response.isSuccess ? 'success' : 'error',
               errorMessage: progress.response.errorMessage,
+              output: progress.response.data,
             );
           }
           return ind;
@@ -142,7 +143,16 @@ class HarnessSessionBloc
         ));
       }
     } else if (progress is EngineTurnCompleted) {
-      final updatedTurns = List<Turn>.from(currentTurns)..add(progress.turn);
+      final turnWithTools = progress.turn.toolCalls.isNotEmpty
+          ? progress.turn
+          : (state is HarnessTurnExecuting &&
+                  (state as HarnessTurnExecuting).toolIndicators.isNotEmpty
+              ? progress.turn.copyWith(
+                  toolCalls: (state as HarnessTurnExecuting).toolIndicators,
+                )
+              : progress.turn);
+
+      final updatedTurns = List<Turn>.from(currentTurns)..add(turnWithTools);
       emit(HarnessSessionReady(
         sessionId: currentSessionId,
         turns: updatedTurns,
