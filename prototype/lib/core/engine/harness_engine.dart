@@ -109,6 +109,7 @@ class HarnessEngine {
           contentType: isA2UI ? 'a2ui' : 'text',
           text: parsed.explicitTextMessage,
           a2uiSurfaceId: parsed.explicitA2UIPayload?['messages']?[0]?['createSurface']?['surfaceId'],
+          a2uiPayload: isA2UI ? parsed.explicitA2UIPayload : null,
           modelUsed: modelProvider.config.displayName,
           toolCalls: List.unmodifiable(accumulatedToolCalls),
         );

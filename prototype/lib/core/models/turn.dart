@@ -26,6 +26,9 @@ class Turn {
   /// Surface identifier for the mounted A2UI component when [contentType] is `'a2ui'`.
   final String? a2uiSurfaceId;
 
+  /// Full raw A2UI payload dictionary passed inside `send_a2ui` parameters.
+  final Map<String, dynamic>? a2uiPayload;
+
   /// Identifier of the model that generated this turn (null for user turns).
   final String? modelUsed;
 
@@ -43,6 +46,7 @@ class Turn {
     required this.contentType,
     this.text,
     this.a2uiSurfaceId,
+    this.a2uiPayload,
     this.modelUsed,
     this.tokenCount,
     this.toolCalls = const [],
@@ -82,6 +86,7 @@ class Turn {
       'contentType': contentType,
       if (text != null) 'text': text,
       if (a2uiSurfaceId != null) 'a2uiSurfaceId': a2uiSurfaceId,
+      if (a2uiPayload != null) 'a2uiPayload': a2uiPayload,
       if (modelUsed != null) 'modelUsed': modelUsed,
       if (tokenCount != null) 'tokenCount': tokenCount,
       if (toolCalls.isNotEmpty)
@@ -99,6 +104,9 @@ class Turn {
       contentType: json['contentType'] as String,
       text: json['text'] as String?,
       a2uiSurfaceId: json['a2uiSurfaceId'] as String?,
+      a2uiPayload: json['a2uiPayload'] != null
+          ? Map<String, dynamic>.from(json['a2uiPayload'] as Map)
+          : null,
       modelUsed: json['modelUsed'] as String?,
       tokenCount: json['tokenCount'] as int?,
       toolCalls: json['toolCalls'] != null
@@ -119,6 +127,7 @@ class Turn {
     String? contentType,
     String? text,
     String? a2uiSurfaceId,
+    Map<String, dynamic>? a2uiPayload,
     String? modelUsed,
     int? tokenCount,
     List<ToolExecutionRecord>? toolCalls,
@@ -131,6 +140,7 @@ class Turn {
       contentType: contentType ?? this.contentType,
       text: text ?? this.text,
       a2uiSurfaceId: a2uiSurfaceId ?? this.a2uiSurfaceId,
+      a2uiPayload: a2uiPayload ?? this.a2uiPayload,
       modelUsed: modelUsed ?? this.modelUsed,
       tokenCount: tokenCount ?? this.tokenCount,
       toolCalls: toolCalls ?? this.toolCalls,
