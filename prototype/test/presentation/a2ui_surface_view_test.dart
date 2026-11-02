@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:harness/modules/a2ui/widgets/a2ui_component_registry.dart';
 import 'package:harness/modules/a2ui/widgets/a2ui_surface_view.dart';
 
 void main() {
@@ -195,5 +196,93 @@ void main() {
       expect(find.text('Action'), findsOneWidget); // Default button label
       expect(find.byIcon(Icons.info_outline), findsOneWidget); // Default icon
     });
+
+    testWidgets('renders official GitHub spec with components directly in createSurface', (tester) async {
+      final officialPayload = {
+        'messages': [
+          {
+            'version': '1.0',
+            'createSurface': {
+              'surfaceId': 'official_form',
+              'catalogId': 'https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json',
+              'components': [
+                {
+                  'id': 'root',
+                  'component': 'Column',
+                  'children': ['name_input', 'agree_check'],
+                },
+                {
+                  'id': 'name_input',
+                  'component': 'TextField',
+                  'label': 'Representative',
+                  'placeholder': 'Enter name',
+                  'value': '\${/form/rep}',
+                },
+                {
+                  'id': 'agree_check',
+                  'component': 'CheckBox',
+                  'label': 'I agree to the terms',
+                  'value': true,
+                },
+              ],
+              'dataModel': {
+                'form': {'rep': 'John Doe'},
+              },
+            },
+          },
+        ],
+      };
+
+      await tester.pumpWidget(buildTestWidget(payload: officialPayload));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Representative'), findsOneWidget);
+      expect(find.text('John Doe'), findsOneWidget);
+      expect(find.text('I agree to the terms'), findsOneWidget);
+      expect(find.byType(CheckboxListTile), findsOneWidget);
+    });
+
+    testWidgets('supports dynamic custom component registration via A2UIComponentRegistry', (tester) async {
+      // Register custom component
+      A2UIComponentRegistry.instance.register('CustomMetricBadge', (context, ctx) {
+        final label = ctx.properties['label']?.toString() ?? '';
+        final value = ctx.resolveBinding(ctx.properties['value'])?.toString() ?? '';
+        return Container(
+          key: const Key('custom_metric_badge'),
+          padding: const EdgeInsets.all(8),
+          color: Colors.blue.shade100,
+          child: Text('$label: $value'),
+        );
+      });
+
+      final customPayload = {
+        'messages': [
+          {
+            'version': '1.0',
+            'createSurface': {
+              'surfaceId': 'custom_surf',
+              'components': [
+                {
+                  'id': 'root',
+                  'component': 'CustomMetricBadge',
+                  'label': 'GDP Growth',
+                  'value': '\${/gdp/growth}',
+                },
+              ],
+              'dataModel': {
+                'gdp': {'growth': '+4.2%'},
+              },
+            },
+          },
+        ],
+      };
+
+      await tester.pumpWidget(buildTestWidget(payload: customPayload));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('custom_metric_badge')), findsOneWidget);
+      expect(find.text('GDP Growth: +4.2%'), findsOneWidget);
+    });
   });
 }
+
