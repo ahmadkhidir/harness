@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:uuid/uuid.dart';
 import '../../data/services/skills_service.dart';
+import '../../modules/a2ui/a2ui_validator.dart';
 import '../models/models.dart';
 import '../utils/file_system_manager.dart';
 import 'command_router.dart';
@@ -48,12 +49,15 @@ class HarnessEngine {
 
   /// Executes an autonomous multi-turn agent interaction for the given [userPrompt].
   ///
+  /// Incorporates optional [recentHistory] (last 5-10 conversational turns) into prompt context
+  /// so the model maintains short-term conversational awareness.
   /// Yields progressive [EngineProgressEvent] instances to drive reactive UI indicators.
   Stream<EngineProgressEvent> executeTurn({
     required String userPrompt,
     required String sessionId,
     String? apiKey,
     String? storageTree,
+    List<Turn>? recentHistory,
   }) async* {
     yield EngineTurnStarted(userPrompt);
 
@@ -72,9 +76,39 @@ class HarnessEngine {
       availableSkills: availableSkills,
     );
 
-    final dialogueHistory = <ModelMessage>[
-      ModelMessage(role: 'user', content: userPrompt),
-    ];
+    final dialogueHistory = <ModelMessage>[];
+
+    // Inject recent short-term conversational context (last 5-10 turns)
+    if (recentHistory != null && recentHistory.isNotEmpty) {
+      final historyWithoutCurrent = recentHistory.where((t) {
+        if (t.sender == 'user' && t.text == userPrompt) return false;
+        return true;
+      }).toList();
+
+      final sliceStart = historyWithoutCurrent.length > 10
+          ? historyWithoutCurrent.length - 10
+          : 0;
+      final recentSlice = historyWithoutCurrent.sublist(sliceStart);
+
+      for (final turn in recentSlice) {
+        if (turn.sender == 'user') {
+          final content = (turn.text ?? '').trim();
+          if (content.isNotEmpty) {
+            dialogueHistory.add(ModelMessage(role: 'user', content: content));
+          }
+        } else {
+          var content = (turn.text ?? '').trim();
+          if (content.isEmpty && turn.a2uiPayload != null) {
+            content = '[Delivered interactive A2UI surface: ${turn.a2uiSurfaceId ?? 'main'}]';
+          }
+          if (content.isNotEmpty) {
+            dialogueHistory.add(ModelMessage(role: 'assistant', content: content));
+          }
+        }
+      }
+    }
+
+    dialogueHistory.add(ModelMessage(role: 'user', content: userPrompt));
 
     int turnsCount = 0;
     final accumulatedToolCalls = <ToolExecutionRecord>[];
@@ -100,22 +134,73 @@ class HarnessEngine {
 
       // Check for explicit final delivery commands (send_message / send_a2ui)
       if (parsed.hasExplicitDelivery) {
-        final isA2UI = parsed.explicitA2UIPayload != null;
-        final turn = Turn(
-          id: 'turn_${const Uuid().v4().substring(0, 8)}',
-          sessionId: sessionId,
-          timestamp: DateTime.now().toUtc(),
-          sender: 'agent',
-          contentType: isA2UI ? 'a2ui' : 'text',
-          text: parsed.explicitTextMessage,
-          a2uiSurfaceId: parsed.explicitA2UIPayload?['messages']?[0]?['createSurface']?['surfaceId'],
-          a2uiPayload: isA2UI ? parsed.explicitA2UIPayload : null,
-          modelUsed: modelProvider.config.displayName,
-          toolCalls: List.unmodifiable(accumulatedToolCalls),
-        );
+        // If send_a2ui was dispatched, strictly validate that it contains renderable components
+        if (parsed.explicitA2UIPayload != null) {
+          final validation = A2UIValidator.validate(parsed.explicitA2UIPayload);
+          if (validation.isValid) {
+            final turn = Turn(
+              id: 'turn_${const Uuid().v4().substring(0, 8)}',
+              sessionId: sessionId,
+              timestamp: DateTime.now().toUtc(),
+              sender: 'agent',
+              contentType: 'a2ui',
+              text: parsed.explicitTextMessage,
+              a2uiSurfaceId: validation.surfaceId,
+              a2uiPayload: parsed.explicitA2UIPayload,
+              modelUsed: modelProvider.config.displayName,
+              toolCalls: List.unmodifiable(accumulatedToolCalls),
+            );
 
-        yield EngineTurnCompleted(turn);
-        return;
+            yield EngineTurnCompleted(turn);
+            return;
+          } else {
+            // Self-Healing Loop: Do not abort with broken UI; feed error back to LLM for autonomous repair
+            final a2uiCall = SystemCall(
+              command: 'send_a2ui',
+              parameters: parsed.explicitA2UIPayload!,
+            );
+            accumulatedToolCalls.add(ToolExecutionRecord(
+              call: a2uiCall,
+              status: 'error',
+              errorMessage: validation.errorMessage,
+            ));
+            yield EngineSystemCallStarted(a2uiCall);
+            yield EngineSystemCallFinished(
+              a2uiCall,
+              SystemResponse.error(
+                command: 'send_a2ui',
+                errorMessage: validation.errorMessage ?? 'Invalid A2UI payload structure.',
+              ),
+            );
+
+            dialogueHistory.add(ModelMessage(role: 'assistant', content: rawResponse));
+            dialogueHistory.add(
+              ModelMessage(
+                role: 'user',
+                content:
+                    '<system_response command="send_a2ui" status="error">\n${validation.errorMessage}\nPlease inspect the component schema using load_a2ui_catalog(catalog: "basic/v1"), correct the component structure (e.g. define components inside createSurface or updateComponents), or deliver your response using send_message.\n</system_response>',
+              ),
+            );
+            continue;
+          }
+        }
+
+        // Standard text message delivery via send_message
+        if (parsed.explicitTextMessage != null) {
+          final turn = Turn(
+            id: 'turn_${const Uuid().v4().substring(0, 8)}',
+            sessionId: sessionId,
+            timestamp: DateTime.now().toUtc(),
+            sender: 'agent',
+            contentType: 'text',
+            text: parsed.explicitTextMessage,
+            modelUsed: modelProvider.config.displayName,
+            toolCalls: List.unmodifiable(accumulatedToolCalls),
+          );
+
+          yield EngineTurnCompleted(turn);
+          return;
+        }
       }
 
       // Fallback: If no system calls and no delivery command, treat raw response as text delivery

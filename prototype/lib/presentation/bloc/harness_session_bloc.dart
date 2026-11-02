@@ -94,7 +94,8 @@ class HarnessSessionBloc
       await sessionService!.appendTurn(currentSessionId, userTurn);
     }
 
-    final updatedTurns = List<Turn>.from(state.turns)..add(userTurn);
+    final priorTurns = List<Turn>.from(state.turns);
+    final updatedTurns = List<Turn>.from(priorTurns)..add(userTurn);
 
     emit(HarnessTurnExecuting(
       sessionId: currentSessionId,
@@ -112,6 +113,7 @@ class HarnessSessionBloc
           userPrompt: event.prompt,
           sessionId: currentSessionId,
           apiKey: effectiveApiKey,
+          recentHistory: priorTurns,
         )
         .listen(
           (progressEvent) => add(SessionEngineProgressReceived(progressEvent)),

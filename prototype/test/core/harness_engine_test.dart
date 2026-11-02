@@ -28,6 +28,7 @@ class MockToolModule extends HarnessModule {
 
 class ScriptedModelProvider extends ModelProvider {
   final List<String> script;
+  final List<List<ModelMessage>> recordedCalls = [];
   int _index = 0;
 
   ScriptedModelProvider({required this.script});
@@ -47,6 +48,7 @@ class ScriptedModelProvider extends ModelProvider {
     List<CommandDefinition>? tools,
     String? apiKey,
   }) async {
+    recordedCalls.add(List.from(messages));
     if (_index < script.length) {
       return script[_index++];
     }
@@ -175,6 +177,139 @@ I need to query data first.
 
       final errorEvent = events.last as EngineErrorOccurred;
       expect(errorEvent.message.contains('exceeded maximum turn limit (3 turns)'), isTrue);
+    });
+
+    test('self-healing A2UI loop: catches empty or invalid A2UI components and loops back for repair', () async {
+      // Turn 1: Model emits invalid A2UI with 0 components
+      // Turn 2: Model receives error observation and repairs output with valid components
+      final healingProvider = ScriptedModelProvider(script: [
+        '''
+<system_call>
+{
+  "command": "send_a2ui",
+  "parameters": {
+    "text": "Here is the broken card:",
+    "messages": [
+      {
+        "version": "1.0",
+        "createSurface": {
+          "surfaceId": "main",
+          "catalogId": "basic/v1"
+        }
+      }
+    ]
+  }
+}
+</system_call>
+''',
+        '''
+<system_call>
+{
+  "command": "send_a2ui",
+  "parameters": {
+    "text": "Here is the corrected card:",
+    "messages": [
+      {
+        "version": "1.0",
+        "createSurface": {
+          "surfaceId": "main",
+          "catalogId": "basic/v1",
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "Repaired Card Content"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+</system_call>
+''',
+      ]);
+
+      final engine = HarnessEngine(
+        router: router,
+        contextBuilder: contextBuilder,
+        modelProvider: healingProvider,
+      );
+
+      final events = <EngineProgressEvent>[];
+      await for (final event in engine.executeTurn(
+        userPrompt: 'Show card',
+        sessionId: 'sess_heal',
+      )) {
+        events.add(event);
+      }
+
+      // Verify that engine did NOT stop on the first broken A2UI call!
+      expect(healingProvider.recordedCalls.length, 2);
+      final secondTurnMessages = healingProvider.recordedCalls[1];
+      final systemResponseMsg = secondTurnMessages.last.content;
+      expect(systemResponseMsg, contains('<system_response command="send_a2ui" status="error">'));
+      expect(systemResponseMsg, contains('No components defined for surface "main"'));
+
+      // Verify turn completed with the repaired A2UI surface
+      final completedEvent = events.last as EngineTurnCompleted;
+      expect(completedEvent.turn.contentType, equals('a2ui'));
+      expect(completedEvent.turn.text, equals('Here is the corrected card:'));
+      expect(completedEvent.turn.a2uiSurfaceId, equals('main'));
+      expect(completedEvent.turn.toolCalls.first.call.command, equals('send_a2ui'));
+      expect(completedEvent.turn.toolCalls.first.status, equals('error'));
+    });
+
+    test('injects sliding short-term conversational context (prior turns) into dialogue history', () async {
+      final contextProvider = ScriptedModelProvider(script: [
+        '<system_call>{"command": "send_message", "parameters": {"text": "Answer referencing previous context"}}</system_call>',
+      ]);
+
+      final engine = HarnessEngine(
+        router: router,
+        contextBuilder: contextBuilder,
+        modelProvider: contextProvider,
+      );
+
+      final priorTurns = [
+        Turn(
+          id: 't1',
+          sessionId: 'sess_hist',
+          timestamp: DateTime.now().toUtc(),
+          sender: 'user',
+          contentType: 'text',
+          text: 'What is the capital of France?',
+        ),
+        Turn(
+          id: 't2',
+          sessionId: 'sess_hist',
+          timestamp: DateTime.now().toUtc(),
+          sender: 'agent',
+          contentType: 'text',
+          text: 'The capital of France is Paris.',
+        ),
+      ];
+
+      await for (final _ in engine.executeTurn(
+        userPrompt: 'What is its population?',
+        sessionId: 'sess_hist',
+        recentHistory: priorTurns,
+      )) {}
+
+      expect(contextProvider.recordedCalls.isNotEmpty, isTrue);
+      final messagesSent = contextProvider.recordedCalls.first;
+
+      // Messages should contain:
+      // 1. user: What is the capital of France?
+      // 2. assistant: The capital of France is Paris.
+      // 3. user: What is its population?
+      expect(messagesSent.length, 3);
+      expect(messagesSent[0].role, equals('user'));
+      expect(messagesSent[0].content, equals('What is the capital of France?'));
+      expect(messagesSent[1].role, equals('assistant'));
+      expect(messagesSent[1].content, equals('The capital of France is Paris.'));
+      expect(messagesSent[2].role, equals('user'));
+      expect(messagesSent[2].content, equals('What is its population?'));
     });
   });
 }
