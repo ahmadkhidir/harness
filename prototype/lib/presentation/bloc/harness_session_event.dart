@@ -19,6 +19,16 @@ class InitializeSessionEvent extends HarnessSessionEvent {
   List<Object?> get props => [sessionId];
 }
 
+/// Dispatched to switch the active session and load its turns into the chat UI.
+class SwitchSessionEvent extends HarnessSessionEvent {
+  final String sessionId;
+
+  const SwitchSessionEvent(this.sessionId);
+
+  @override
+  List<Object?> get props => [sessionId];
+}
+
 /// Dispatched when the user submits a new prompt to execute.
 class SubmitUserPromptEvent extends HarnessSessionEvent {
   final String prompt;

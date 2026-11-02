@@ -4,39 +4,72 @@ import '../../core/engine/engine_events.dart';
 import '../../core/engine/harness_engine.dart';
 import '../../core/models/turn.dart';
 import '../../data/secure_storage/key_storage_service.dart';
+import '../../data/services/session_service.dart';
 import 'harness_session_event.dart';
 import 'harness_session_state.dart';
 
 /// BLoC coordinating the reactive session lifecycle and multi-turn execution events.
 ///
 /// Implements the presentation state management defined in `docs/Harness/architecture.md`
-/// and acceptance criteria for FEAT-001 and FEAT-002:
+/// and acceptance criteria for FEAT-001, FEAT-002, and FEAT-005:
 /// - Dispatches progressive events to update tool indicators on the screen in real time.
 /// - Resolves API keys from [KeyStorageService] when not passed directly in the event.
 /// - Flags authentication errors for direct user navigation to Settings.
+/// - Coordinates dual-file session persistence and context compaction with [SessionService].
 class HarnessSessionBloc
     extends Bloc<HarnessSessionEvent, HarnessSessionState> {
   final HarnessEngine engine;
   final KeyStorageService? keyStorage;
+  final SessionService? sessionService;
   StreamSubscription<EngineProgressEvent>? _engineSubscription;
 
   HarnessSessionBloc({
     required this.engine,
     this.keyStorage,
+    this.sessionService,
   }) : super(const HarnessSessionInitial()) {
     on<InitializeSessionEvent>(_onInitializeSession);
+    on<SwitchSessionEvent>(_onSwitchSession);
     on<SubmitUserPromptEvent>(_onSubmitUserPrompt);
     on<SessionEngineProgressReceived>(_onEngineProgressReceived);
     on<CancelActiveTurnEvent>(_onCancelActiveTurn);
   }
 
-  void _onInitializeSession(
+  Future<void> _onInitializeSession(
     InitializeSessionEvent event,
     Emitter<HarnessSessionState> emit,
-  ) {
-    final sessionId =
-        event.sessionId ?? 'sess_${DateTime.now().millisecondsSinceEpoch}';
-    emit(HarnessSessionReady(sessionId: sessionId, turns: const []));
+  ) async {
+    String? targetId = event.sessionId;
+    if (targetId == null && sessionService != null) {
+      targetId = await sessionService!.getActiveSessionId();
+      if (targetId == null) {
+        final session = await sessionService!.createSession(title: 'New Session');
+        targetId = session.id;
+      }
+    }
+    targetId ??= 'sess_${DateTime.now().millisecondsSinceEpoch}';
+
+    List<Turn> existingTurns = [];
+    if (sessionService != null) {
+      existingTurns = await sessionService!.loadTurns(targetId);
+    }
+    emit(HarnessSessionReady(sessionId: targetId, turns: existingTurns));
+  }
+
+  Future<void> _onSwitchSession(
+    SwitchSessionEvent event,
+    Emitter<HarnessSessionState> emit,
+  ) async {
+    await _engineSubscription?.cancel();
+    _engineSubscription = null;
+
+    if (sessionService != null) {
+      await sessionService!.setActiveSessionId(event.sessionId);
+      final turns = await sessionService!.loadTurns(event.sessionId);
+      emit(HarnessSessionReady(sessionId: event.sessionId, turns: turns));
+    } else {
+      emit(HarnessSessionReady(sessionId: event.sessionId, turns: const []));
+    }
   }
 
   Future<void> _onSubmitUserPrompt(
@@ -55,6 +88,11 @@ class HarnessSessionBloc
       contentType: 'text',
       text: event.prompt,
     );
+
+    // Dual-write user prompt to disk
+    if (sessionService != null) {
+      await sessionService!.appendTurn(currentSessionId, userTurn);
+    }
 
     final updatedTurns = List<Turn>.from(state.turns)..add(userTurn);
 
@@ -85,10 +123,10 @@ class HarnessSessionBloc
         );
   }
 
-  void _onEngineProgressReceived(
+  Future<void> _onEngineProgressReceived(
     SessionEngineProgressReceived event,
     Emitter<HarnessSessionState> emit,
-  ) {
+  ) async {
     final progress = event.progressEvent;
     final currentSessionId = state.sessionId ?? 'sess_default';
     final currentTurns = state.turns;
@@ -151,6 +189,11 @@ class HarnessSessionBloc
                   toolCalls: (state as HarnessTurnExecuting).toolIndicators,
                 )
               : progress.turn);
+
+      if (sessionService != null) {
+        await sessionService!.appendTurn(currentSessionId, turnWithTools);
+        await sessionService!.checkAndCompact(currentSessionId);
+      }
 
       final updatedTurns = List<Turn>.from(currentTurns)..add(turnWithTools);
       emit(HarnessSessionReady(
