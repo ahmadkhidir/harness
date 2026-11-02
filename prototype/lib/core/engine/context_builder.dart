@@ -41,15 +41,23 @@ class ContextBuilder {
         'You may emit MULTIPLE `<system_call>` tags in a single turn. The engine will execute them concurrently in parallel.');
     buffer.writeln();
 
-    buffer.writeln('## Zero Thinking Leakage Rule');
+    buffer.writeln('## Delivery Protocol & Modality Rules');
     buffer.writeln(
         'Any intermediate scratchpad text emitted alongside system calls is treated as internal reasoning and will NOT be shown to the user.');
     buffer.writeln(
-        'To deliver a final user-facing response, you MUST use one of the two delivery commands:');
+        'There is NO default preference between `send_message` and `send_a2ui`. Modality is strictly determined by context:');
     buffer.writeln(
-        '1. `<system_call>{"command": "send_message", "parameters": {"text": "<markdown>"}}</system_call>`');
+        '- If the user mentions UI, interactive views, cards, lists, forms, buttons, or dashboards, OR if an invoked skill involves UI, OR if `load_a2ui_catalog` has been invoked:');
     buffer.writeln(
-        '2. `<system_call>{"command": "send_a2ui", "parameters": {"messages": [...]}}</system_call>`');
+        '  -> You MUST deliver the response via `<system_call>{"command": "send_a2ui", "parameters": {"messages": [...]}}</system_call>`.');
+    buffer.writeln(
+        '  -> Do NOT downgrade to plain text or emit `send_message` when UI is requested.');
+    buffer.writeln(
+        '- If the user asks for a conversational explanation, code snippet, or plain text:');
+    buffer.writeln(
+        '  -> Deliver via `<system_call>{"command": "send_message", "parameters": {"text": "<markdown>"}}</system_call>`.');
+    buffer.writeln(
+        '- If an A2UI delivery has errors: you MUST repair the A2UI component hierarchy and re-emit `send_a2ui`. Do NOT fall back to `send_message`.');
     buffer.writeln();
 
     buffer.writeln('## Available Commands');

@@ -311,6 +311,71 @@ I need to query data first.
       expect(messagesSent[2].role, equals('user'));
       expect(messagesSent[2].content, equals('What is its population?'));
     });
+
+    test('strictly prevents falling back to plain text send_message when UI is requested in context', () async {
+      // Turn 1: User asks for interactive list. Model attempts to downgrade to send_message with plain text.
+      // Engine rejects downgrade and instructs model to deliver via send_a2ui.
+      // Turn 2: Model adheres and emits send_a2ui with valid components.
+      final antiDowngradeProvider = ScriptedModelProvider(script: [
+        '<system_call>{"command": "send_message", "parameters": {"text": "1. Luxembourg - \$143,320\\n2. Ireland - \$137,640"}}</system_call>',
+        '''
+<system_call>
+{
+  "command": "send_a2ui",
+  "parameters": {
+    "text": "Top Richest Countries",
+    "messages": [
+      {
+        "createSurface": {
+          "surfaceId": "main",
+          "catalogId": "basic/v1",
+          "components": [
+            {
+              "id": "root",
+              "component": "Card",
+              "child": "title_item"
+            },
+            {
+              "id": "title_item",
+              "component": "Text",
+              "text": "1. Luxembourg - \$143,320"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+</system_call>
+''',
+      ]);
+
+      final engine = HarnessEngine(
+        router: router,
+        contextBuilder: contextBuilder,
+        modelProvider: antiDowngradeProvider,
+      );
+
+      final events = <EngineProgressEvent>[];
+      await for (final event in engine.executeTurn(
+        userPrompt: 'Show me an interactive list of the top richest countries',
+        sessionId: 'sess_anti_downgrade',
+      )) {
+        events.add(event);
+      }
+
+      // Verify that the engine looped twice and rejected the plain text fallback
+      expect(antiDowngradeProvider.recordedCalls.length, 2);
+      final turn2Input = antiDowngradeProvider.recordedCalls[1];
+      expect(turn2Input.last.content, contains('Modality Enforcement'));
+      expect(turn2Input.last.content, contains('Do NOT downgrade to plain text or send_message'));
+
+      // Verify that final delivery was A2UI
+      final completedEvent = events.last as EngineTurnCompleted;
+      expect(completedEvent.turn.contentType, equals('a2ui'));
+      expect(completedEvent.turn.a2uiSurfaceId, equals('main'));
+      expect(completedEvent.turn.text, equals('Top Richest Countries'));
+    });
   });
 }
 

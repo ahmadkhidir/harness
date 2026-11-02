@@ -178,7 +178,7 @@ class HarnessEngine {
               ModelMessage(
                 role: 'user',
                 content:
-                    '<system_response command="send_a2ui" status="error">\n${validation.errorMessage}\nPlease inspect the component schema using load_a2ui_catalog(catalog: "basic/v1"), correct the component structure (e.g. define components inside createSurface or updateComponents), or deliver your response using send_message.\n</system_response>',
+                    '<system_response command="send_a2ui" status="error">\n${validation.errorMessage}\nAction Required: The user requested an interactive UI surface. Repair the A2UI surface/component hierarchy and re-emit send_a2ui with valid components (e.g. inside createSurface.components or updateComponents.components). Do NOT fall back to send_message or plain text.\n</system_response>',
               ),
             );
             continue;
@@ -187,6 +187,22 @@ class HarnessEngine {
 
         // Standard text message delivery via send_message
         if (parsed.explicitTextMessage != null) {
+          final isUIRequired = accumulatedToolCalls.any(
+                  (r) => r.call.command == 'send_a2ui' || r.call.command == 'load_a2ui_catalog') ||
+              _isUIContextRequested(userPrompt, dialogueHistory, accumulatedToolCalls);
+
+          if (isUIRequired && turnsCount < maxTurns) {
+            dialogueHistory.add(ModelMessage(role: 'assistant', content: rawResponse));
+            dialogueHistory.add(
+              ModelMessage(
+                role: 'user',
+                content:
+                    '<system_response status="error">\nModality Enforcement: An interactive UI interface was requested by the user or skill context. Do NOT downgrade to plain text or send_message. You must deliver using send_a2ui with a valid component hierarchy.\n</system_response>',
+              ),
+            );
+            continue;
+          }
+
           final turn = Turn(
             id: 'turn_${const Uuid().v4().substring(0, 8)}',
             sessionId: sessionId,
@@ -205,6 +221,22 @@ class HarnessEngine {
 
       // Fallback: If no system calls and no delivery command, treat raw response as text delivery
       if (!parsed.hasSystemCalls) {
+        final isUIRequired = accumulatedToolCalls.any(
+                (r) => r.call.command == 'send_a2ui' || r.call.command == 'load_a2ui_catalog') ||
+            _isUIContextRequested(userPrompt, dialogueHistory, accumulatedToolCalls);
+
+        if (isUIRequired && turnsCount < maxTurns) {
+          dialogueHistory.add(ModelMessage(role: 'assistant', content: rawResponse));
+          dialogueHistory.add(
+            ModelMessage(
+              role: 'user',
+              content:
+                  '<system_response status="error">\nModality Enforcement: An interactive UI interface was requested by the user or skill context. You must deliver using <system_call>{"command": "send_a2ui", "parameters": ...}</system_call>, not plain text. Please emit your A2UI component hierarchy now.\n</system_response>',
+            ),
+          );
+          continue;
+        }
+
         var text = (parsed.explicitTextMessage ?? rawResponse).trim();
         // Zero Leakage: Ensure raw <system_call> or <system_response> tags never leak to user
         if (text.contains('<system_call>')) {
@@ -281,5 +313,56 @@ class HarnessEngine {
     yield EngineErrorOccurred(
       'Halted: Autonomous tool loop exceeded maximum turn limit ($maxTurns turns).',
     );
+  }
+
+  /// Determines whether the current conversational turn or prior context mandates
+  /// interactive UI delivery (A2UI) rather than plain text.
+  static bool _isUIContextRequested(
+    String userPrompt,
+    List<ModelMessage> dialogueHistory,
+    List<ToolExecutionRecord> accumulatedToolCalls,
+  ) {
+    // 1. Any A2UI or catalog tool executed in this session turn
+    if (accumulatedToolCalls.any((r) =>
+        r.call.command == 'send_a2ui' ||
+        r.call.command == 'load_a2ui_catalog')) {
+      return true;
+    }
+
+    // 2. Any tool output in this turn referencing A2UI or UI catalogs
+    for (final record in accumulatedToolCalls) {
+      final resText = record.output?.toString() ?? record.errorMessage ?? '';
+      if (resText.contains('a2ui') ||
+          resText.contains('catalog.json') ||
+          resText.contains('send_a2ui')) {
+        return true;
+      }
+    }
+
+    // 3. User prompt explicitly requesting UI, cards, lists, forms, or interactive views
+    final uiKeywords = RegExp(
+      r'\b(ui|a2ui|interactive|card|cards|list|form|dashboard|surface|widget|component|components|button|buttons)\b',
+      caseSensitive: false,
+    );
+    if (uiKeywords.hasMatch(userPrompt)) {
+      return true;
+    }
+
+    // 4. Recent dialogue history indicating UI context (e.g. from prior turns)
+    final historySlice = dialogueHistory.length > 6
+        ? dialogueHistory.sublist(dialogueHistory.length - 6)
+        : dialogueHistory;
+
+    for (final msg in historySlice) {
+      if (msg.role == 'user' && uiKeywords.hasMatch(msg.content)) {
+        return true;
+      }
+      if (msg.content.contains('send_a2ui') ||
+          msg.content.contains('load_a2ui_catalog')) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }
