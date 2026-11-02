@@ -7,8 +7,6 @@ import 'package:harness/core/engine/engine_events.dart';
 import 'package:harness/core/engine/harness_engine.dart';
 import 'package:harness/core/models/models.dart';
 import 'package:harness/core/utils/file_system_manager.dart';
-import 'package:harness/data/database/app_database.dart';
-import 'package:harness/data/services/session_service.dart';
 import 'package:harness/modules/a2ui/a2ui_module.dart';
 import 'package:harness/presentation/widgets/message_bubble.dart';
 import 'package:harness/providers/model_provider.dart';
@@ -62,8 +60,6 @@ void main() {
 
   late Directory tempDir;
   late HarnessFileSystem fs;
-  late AppDatabase db;
-  late SessionService sessionService;
   late CommandRouter router;
   late A2UIModule a2uiModule;
 
@@ -71,8 +67,6 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('feat_006_acceptance_');
     fs = HarnessFileSystem(rootDir: Directory('${tempDir.path}/Harness'));
     fs.ensureBaseDirectoriesSync();
-    db = AppDatabase.inMemory();
-    sessionService = SessionService(fileSystem: fs, database: db);
 
     router = CommandRouter();
     a2uiModule = A2UIModule();

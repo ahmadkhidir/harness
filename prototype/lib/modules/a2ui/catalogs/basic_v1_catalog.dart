@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'a2ui_catalog.dart';
 
 /// Full official A2UI Basic Catalog Specification and JSON Pointer Resolver.
