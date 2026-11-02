@@ -123,6 +123,27 @@ class A2UIComponentRegistry {
     final childId = ctx.properties['child']?.toString();
     final elevation = (ctx.properties['elevation'] as num?)?.toDouble() ?? 1.0;
     final padding = (ctx.properties['padding'] as num?)?.toDouble() ?? 12.0;
+    final maxHeight = (ctx.properties['maxHeight'] as num?)?.toDouble();
+    final scrollable = ctx.properties['scrollable'] == true || maxHeight != null;
+
+    Widget cardChild = childId != null
+        ? ctx.buildChild(childId)
+        : const SizedBox.shrink();
+
+    if (maxHeight != null) {
+      cardChild = ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: cardChild,
+        ),
+      );
+    } else if (scrollable) {
+      cardChild = SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        child: cardChild,
+      );
+    }
 
     return Card(
       elevation: elevation,
@@ -135,9 +156,7 @@ class A2UIComponentRegistry {
       ),
       child: Padding(
         padding: EdgeInsets.all(padding),
-        child: childId != null
-            ? ctx.buildChild(childId)
-            : const SizedBox.shrink(),
+        child: cardChild,
       ),
     );
   }
@@ -146,34 +165,44 @@ class A2UIComponentRegistry {
   static Widget _buildColumn(BuildContext context, A2UIComponentContext ctx) {
     final childrenIds = _extractStringList(ctx.properties['children']);
     final spacing = (ctx.properties['spacing'] as num?)?.toDouble() ?? 8.0;
+    final maxHeight = (ctx.properties['maxHeight'] as num?)?.toDouble();
+    final scrollable = ctx.properties['scrollable'] == true || maxHeight != null;
 
     final crossAlign = _parseCrossAxisAlignment(ctx.properties['crossAxisAlignment'] ?? ctx.properties['alignment']);
     final mainAlign = _parseMainAxisAlignment(ctx.properties['mainAxisAlignment']);
 
     final childrenWidgets = ctx.buildChildren(childrenIds);
-    if (spacing <= 0 || childrenWidgets.length <= 1) {
-      return Column(
-        crossAxisAlignment: crossAlign,
-        mainAxisAlignment: mainAlign,
-        mainAxisSize: MainAxisSize.min,
-        children: childrenWidgets,
-      );
-    }
-
     final spaced = <Widget>[];
     for (int i = 0; i < childrenWidgets.length; i++) {
       spaced.add(childrenWidgets[i]);
-      if (i < childrenWidgets.length - 1) {
+      if (i < childrenWidgets.length - 1 && spacing > 0) {
         spaced.add(SizedBox(height: spacing));
       }
     }
 
-    return Column(
+    Widget col = Column(
       crossAxisAlignment: crossAlign,
       mainAxisAlignment: mainAlign,
       mainAxisSize: MainAxisSize.min,
       children: spaced,
     );
+
+    if (maxHeight != null) {
+      return ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: col,
+        ),
+      );
+    } else if (scrollable) {
+      return SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        child: col,
+      );
+    }
+
+    return col;
   }
 
   // --- 3. Row ---
@@ -183,13 +212,21 @@ class A2UIComponentRegistry {
 
     final crossAlign = _parseRowCrossAxisAlignment(ctx.properties['crossAxisAlignment']);
     final mainAlign = _parseMainAxisAlignment(ctx.properties['mainAxisAlignment'] ?? ctx.properties['alignment']);
+    final wrap = ctx.properties['wrap'] == true;
+    final scrollable = ctx.properties['scrollable'] != false; // default true to prevent overflows
 
     final childrenWidgets = ctx.buildChildren(childrenIds);
-    if (spacing <= 0 || childrenWidgets.length <= 1) {
-      return Row(
-        crossAxisAlignment: crossAlign,
-        mainAxisAlignment: mainAlign,
-        mainAxisSize: MainAxisSize.min,
+    if (childrenWidgets.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    // Wrap mode: wraps elements onto multiple lines instead of scrolling horizontally
+    if (wrap) {
+      return Wrap(
+        crossAxisAlignment: _parseWrapCrossAlignment(ctx.properties['crossAxisAlignment']),
+        alignment: _parseWrapAlignment(ctx.properties['mainAxisAlignment'] ?? ctx.properties['alignment']),
+        spacing: spacing,
+        runSpacing: spacing,
         children: childrenWidgets,
       );
     }
@@ -197,17 +234,28 @@ class A2UIComponentRegistry {
     final spaced = <Widget>[];
     for (int i = 0; i < childrenWidgets.length; i++) {
       spaced.add(childrenWidgets[i]);
-      if (i < childrenWidgets.length - 1) {
+      if (i < childrenWidgets.length - 1 && spacing > 0) {
         spaced.add(SizedBox(width: spacing));
       }
     }
 
-    return Row(
+    final row = Row(
       crossAxisAlignment: crossAlign,
       mainAxisAlignment: mainAlign,
       mainAxisSize: MainAxisSize.min,
       children: spaced,
     );
+
+    // Default: wrap in horizontal SingleChildScrollView so multi-item rows never overflow constraints
+    if (scrollable) {
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        child: row,
+      );
+    }
+
+    return row;
   }
 
   // --- 4. Text ---
@@ -219,6 +267,8 @@ class A2UIComponentRegistry {
     final variant = ctx.properties['variant']?.toString() ?? ctx.properties['style']?.toString() ?? 'body';
     final weight = ctx.properties['fontWeight']?.toString();
     final colorStr = ctx.properties['color']?.toString();
+    final maxLines = (ctx.properties['maxLines'] as num?)?.toInt();
+    final overflowStr = ctx.properties['overflow']?.toString();
 
     TextStyle style;
     switch (variant) {
@@ -258,8 +308,30 @@ class A2UIComponentRegistry {
 
     Color? color = _resolveColor(colorStr, theme);
 
+    TextOverflow? overflow;
+    if (overflowStr != null) {
+      switch (overflowStr) {
+        case 'ellipsis':
+          overflow = TextOverflow.ellipsis;
+          break;
+        case 'fade':
+          overflow = TextOverflow.fade;
+          break;
+        case 'clip':
+          overflow = TextOverflow.clip;
+          break;
+        case 'visible':
+          overflow = TextOverflow.visible;
+          break;
+      }
+    } else if (maxLines != null) {
+      overflow = TextOverflow.ellipsis;
+    }
+
     return Text(
       resolvedText,
+      maxLines: maxLines,
+      overflow: overflow,
       style: style.copyWith(
         fontWeight: fontWeight ?? style.fontWeight,
         color: color ?? style.color,
@@ -304,10 +376,20 @@ class A2UIComponentRegistry {
             children: [
               Icon(_resolveIconData(iconName), size: 18),
               const SizedBox(width: 8),
-              Text(label),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           )
-        : Text(label);
+        : Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          );
 
     switch (style) {
       case 'outlined':
@@ -469,6 +551,8 @@ class A2UIComponentRegistry {
     final childrenProp = ctx.properties['children'];
     final direction = ctx.properties['direction']?.toString() ?? 'vertical';
     final isHorizontal = direction == 'horizontal';
+    final maxHeight = (ctx.properties['maxHeight'] as num?)?.toDouble();
+    final scrollable = ctx.properties['scrollable'] == true || maxHeight != null;
 
     // Case A: Dynamic list using template binding: `{"path": "/breeds", "componentId": "breedTemplate"}`
     if (childrenProp is Map && childrenProp['path'] != null && childrenProp['componentId'] != null) {
@@ -489,6 +573,7 @@ class A2UIComponentRegistry {
         if (isHorizontal) {
           return SingleChildScrollView(
             scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: items.map((w) => Padding(padding: const EdgeInsets.only(right: 8), child: w)).toList(),
@@ -496,11 +581,28 @@ class A2UIComponentRegistry {
           );
         }
 
-        return Column(
+        Widget col = Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: items.map((w) => Padding(padding: const EdgeInsets.only(bottom: 8), child: w)).toList(),
         );
+
+        if (maxHeight != null) {
+          return ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxHeight),
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: col,
+            ),
+          );
+        } else if (scrollable) {
+          return SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: col,
+          );
+        }
+
+        return col;
       }
     }
 
@@ -511,6 +613,7 @@ class A2UIComponentRegistry {
     if (isHorizontal) {
       return SingleChildScrollView(
         scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: widgets.map((w) => Padding(padding: const EdgeInsets.only(right: 8), child: w)).toList(),
@@ -518,11 +621,28 @@ class A2UIComponentRegistry {
       );
     }
 
-    return Column(
+    Widget col = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: widgets.map((w) => Padding(padding: const EdgeInsets.only(bottom: 8), child: w)).toList(),
     );
+
+    if (maxHeight != null) {
+      return ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: col,
+        ),
+      );
+    } else if (scrollable) {
+      return SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        child: col,
+      );
+    }
+
+    return col;
   }
 
   // --- 12. Tabs ---
@@ -554,16 +674,24 @@ class A2UIComponentRegistry {
           showModalBottomSheet(
             context: context,
             isScrollControlled: true,
-            builder: (bContext) => Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: Theme.of(bContext).textTheme.titleLarge),
-                  const SizedBox(height: 12),
-                  ctx.buildChild(contentId),
-                ],
+            builder: (bContext) => ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(bContext).size.height * 0.85,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: Theme.of(bContext).textTheme.titleLarge),
+                      const SizedBox(height: 12),
+                      ctx.buildChild(contentId),
+                    ],
+                  ),
+                ),
               ),
             ),
           );
@@ -782,6 +910,36 @@ class A2UIComponentRegistry {
       case 'start':
       default:
         return MainAxisAlignment.start;
+    }
+  }
+
+  static WrapCrossAlignment _parseWrapCrossAlignment(dynamic val) {
+    switch (val?.toString()) {
+      case 'start':
+        return WrapCrossAlignment.start;
+      case 'end':
+        return WrapCrossAlignment.end;
+      case 'center':
+      default:
+        return WrapCrossAlignment.center;
+    }
+  }
+
+  static WrapAlignment _parseWrapAlignment(dynamic val) {
+    switch (val?.toString()) {
+      case 'center':
+        return WrapAlignment.center;
+      case 'end':
+        return WrapAlignment.end;
+      case 'spaceBetween':
+        return WrapAlignment.spaceBetween;
+      case 'spaceAround':
+        return WrapAlignment.spaceAround;
+      case 'spaceEvenly':
+        return WrapAlignment.spaceEvenly;
+      case 'start':
+      default:
+        return WrapAlignment.start;
     }
   }
 

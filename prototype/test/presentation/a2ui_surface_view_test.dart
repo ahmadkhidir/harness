@@ -334,6 +334,139 @@ void main() {
       expect(find.text('Flat Payload Rendered'), findsOneWidget);
       expect(find.textContaining('A2UI notice:'), findsNothing);
     });
+
+    testWidgets('Row automatically wraps in horizontal SingleChildScrollView to prevent overflow', (tester) async {
+      // Place a wide Row with 5 items inside a constrained 300px box
+      final wideRowPayload = {
+        'createSurface': {
+          'surfaceId': 'wide_row_surface',
+          'components': [
+            {
+              'id': 'root',
+              'component': 'Row',
+              'children': ['item_1', 'item_2', 'item_3', 'item_4', 'item_5'],
+            },
+            {
+              'id': 'item_1',
+              'component': 'Text',
+              'text': 'Item 1 - Very Long Description That Exceeds Width',
+            },
+            {
+              'id': 'item_2',
+              'component': 'Text',
+              'text': 'Item 2 - Very Long Description That Exceeds Width',
+            },
+            {
+              'id': 'item_3',
+              'component': 'Text',
+              'text': 'Item 3 - Very Long Description That Exceeds Width',
+            },
+            {
+              'id': 'item_4',
+              'component': 'Text',
+              'text': 'Item 4 - Very Long Description That Exceeds Width',
+            },
+            {
+              'id': 'item_5',
+              'component': 'Text',
+              'text': 'Item 5 - Very Long Description That Exceeds Width',
+            },
+          ],
+        },
+      };
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 300,
+                child: A2UISurfaceView(payload: wideRowPayload),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Verify Row is rendered without any RenderFlex overflow exception
+      expect(find.byType(Row), findsOneWidget);
+      final scrollView = tester.widget<SingleChildScrollView>(find.byType(SingleChildScrollView));
+      expect(scrollView.scrollDirection, equals(Axis.horizontal));
+      expect(find.textContaining('Item 1'), findsOneWidget);
+    });
+
+    testWidgets('Row with wrap: true renders a Wrap widget instead of horizontal scroll', (tester) async {
+      final wrapRowPayload = {
+        'createSurface': {
+          'surfaceId': 'wrap_surface',
+          'components': [
+            {
+              'id': 'root',
+              'component': 'Row',
+              'wrap': true,
+              'children': ['btn_1', 'btn_2'],
+            },
+            {
+              'id': 'btn_1',
+              'component': 'Button',
+              'label': 'Tag 1',
+            },
+            {
+              'id': 'btn_2',
+              'component': 'Button',
+              'label': 'Tag 2',
+            },
+          ],
+        },
+      };
+
+      await tester.pumpWidget(buildTestWidget(payload: wrapRowPayload));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(Wrap), findsOneWidget);
+      expect(find.text('Tag 1'), findsOneWidget);
+      expect(find.text('Tag 2'), findsOneWidget);
+    });
+
+    testWidgets('Column with maxHeight wraps in vertical SingleChildScrollView', (tester) async {
+      final scrollColPayload = {
+        'createSurface': {
+          'surfaceId': 'col_surface',
+          'components': [
+            {
+              'id': 'root',
+              'component': 'Column',
+              'maxHeight': 200,
+              'children': ['t1', 't2', 't3'],
+            },
+            {
+              'id': 't1',
+              'component': 'Text',
+              'text': 'Line 1',
+            },
+            {
+              'id': 't2',
+              'component': 'Text',
+              'text': 'Line 2',
+            },
+            {
+              'id': 't3',
+              'component': 'Text',
+              'text': 'Line 3',
+            },
+          ],
+        },
+      };
+
+      await tester.pumpWidget(buildTestWidget(payload: scrollColPayload));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SingleChildScrollView), findsOneWidget);
+      final scrollView = tester.widget<SingleChildScrollView>(find.byType(SingleChildScrollView));
+      expect(scrollView.scrollDirection, equals(Axis.vertical));
+      expect(find.text('Line 1'), findsOneWidget);
+    });
   });
 }
 
