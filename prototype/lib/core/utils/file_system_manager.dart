@@ -43,6 +43,9 @@ class HarnessFileSystem {
   /// with zero host path leakage.
   late final VirtualMountTable mounts;
 
+  /// Active session identifier for the current agent context.
+  String? activeSessionId;
+
   HarnessFileSystem({required this.rootDir}) {
     mounts = VirtualMountTable(primaryDir: storageDir);
     instance = this;
@@ -307,6 +310,10 @@ class VirtualMountTable {
         final normalized = rawRel.replaceAll('\\', '/');
         return '${entry.key}/$normalized';
       }
+    }
+    // If entity is context.txt from a session, represent as virtual 'context.txt'
+    if (p.basename(entity.path) == 'context.txt') {
+      return 'context.txt';
     }
     // Fallback: if not within any mount, return just the basename under primary
     return 'primary/${p.basename(entity.path)}';

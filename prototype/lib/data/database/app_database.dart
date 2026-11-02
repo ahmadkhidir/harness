@@ -23,6 +23,7 @@ class AppDatabase {
   static const String _configsKey = 'harness_provider_configs';
   static const String _rootPathKey = 'harness_root_path';
   static const String _externalMountsKey = 'harness_external_mounts';
+  static const String _activeSessionIdKey = 'harness_active_session_id';
 
   static final List<ProviderConfig> _defaultConfigs = [
     ProviderConfig(
@@ -121,6 +122,16 @@ class AppDatabase {
     final mounts = await getExternalMounts();
     mounts.remove(tag);
     await _write(_externalMountsKey, json.encode(mounts));
+  }
+
+  /// Retrieves the persisted active session ID, or null if none set.
+  Future<String?> getActiveSessionId() async {
+    return await _read(_activeSessionIdKey);
+  }
+
+  /// Persists the active session ID.
+  Future<void> setActiveSessionId(String sessionId) async {
+    await _write(_activeSessionIdKey, sessionId);
   }
 
   /// Retrieves all configured model providers.
