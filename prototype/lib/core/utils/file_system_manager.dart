@@ -12,6 +12,15 @@ class SecurityException implements Exception {
   String toString() => 'SecurityException: $message';
 }
 
+/// Exception thrown when a virtual path references an unmounted or unknown storage volume tag.
+class UnknownVolumeException implements Exception {
+  final String message;
+  UnknownVolumeException(this.message);
+
+  @override
+  String toString() => 'UnknownVolumeException: $message';
+}
+
 /// Central filesystem and sandbox manager for Harness.
 ///
 /// Implements the unified on-device filesystem layout:
@@ -196,16 +205,32 @@ class HarnessFileSystem {
     return File(targetPath);
   }
 
-  /// Resolves a file path strictly jailed within the `storage/` directory or virtual mounts.
+  /// Resolves a file path strictly jailed within the `storage/` directory.
   ///
-  /// Throws a [SecurityException] if the relative path resolves outside authorized mounts.
+  /// Throws a [SecurityException] if the relative path resolves outside the storage sandbox.
   File resolveStorageFile(String relativePath) {
-    return mounts.resolveVirtualFile(relativePath);
+    final canonicalBase = p.canonicalize(storageDir.path);
+    final targetPath = p.canonicalize(p.join(storageDir.path, relativePath));
+
+    if (!p.isWithin(canonicalBase, targetPath) && canonicalBase != targetPath) {
+      throw SecurityException(
+        'Access denied: Path "$relativePath" escapes the storage sandbox.',
+      );
+    }
+    return File(targetPath);
   }
 
-  /// Resolves a directory path strictly jailed within the `storage/` directory or virtual mounts.
+  /// Resolves a directory path strictly jailed within the `storage/` directory.
   Directory resolveStorageDir([String relativePath = '']) {
-    return mounts.resolveVirtualDir(relativePath);
+    final canonicalBase = p.canonicalize(storageDir.path);
+    final targetPath = p.canonicalize(p.join(storageDir.path, relativePath));
+
+    if (!p.isWithin(canonicalBase, targetPath) && canonicalBase != targetPath) {
+      throw SecurityException(
+        'Access denied: Directory "$relativePath" escapes the storage sandbox.',
+      );
+    }
+    return Directory(targetPath);
   }
 
   /// Resolves a virtual file path (e.g. `primary/notes.txt` or `downloads/data.csv`).
@@ -256,6 +281,37 @@ class VirtualMountTable {
   /// Returns the registered mount tags.
   List<String> get mountTags => List.unmodifiable(_mounts.keys);
 
+  /// Checks if a named mount tag is registered.
+  bool hasMount(String tag) => _mounts.containsKey(tag);
+
+  /// Converts a physical file or directory path back to its virtual path representation
+  /// (e.g. `<HarnessRoot>/storage/notes.txt` -> `primary/notes.txt`).
+  ///
+  /// Strictly prevents host operating system paths from leaking into engine outputs
+  /// while preserving original file casing.
+  String toVirtualPath(FileSystemEntity entity) {
+    final canonicalEntity = p.canonicalize(entity.path);
+    for (final entry in _mounts.entries) {
+      final canonicalMount = p.canonicalize(entry.value.path);
+      if (canonicalEntity == canonicalMount) {
+        return entry.key;
+      }
+      if (p.isWithin(canonicalMount, canonicalEntity)) {
+        final mountLen = canonicalMount.length;
+        String rawRel = canonicalEntity.length > mountLen
+            ? entity.path.substring(entity.path.length - (canonicalEntity.length - mountLen))
+            : p.basename(entity.path);
+        if (rawRel.startsWith(r'\') || rawRel.startsWith('/')) {
+          rawRel = rawRel.substring(1);
+        }
+        final normalized = rawRel.replaceAll('\\', '/');
+        return '${entry.key}/$normalized';
+      }
+    }
+    // Fallback: if not within any mount, return just the basename under primary
+    return 'primary/${p.basename(entity.path)}';
+  }
+
   /// Resolves a virtual path (e.g. `primary/notes.txt` or `downloads/data.csv`)
   /// to its physical [File] on disk, strictly jailed within the mounted directory.
   File resolveVirtualFile(String virtualPath) {
@@ -296,7 +352,12 @@ class VirtualMountTable {
       return (primary, '');
     }
 
-    final segments = normalized.split('/').where((s) => s.isNotEmpty).toList();
+    var cleanPath = normalized;
+    if (cleanPath.startsWith('/')) {
+      cleanPath = cleanPath.substring(1);
+    }
+
+    final segments = cleanPath.split('/').where((s) => s.isNotEmpty).toList();
     if (segments.isEmpty) {
       return (_mounts['primary']!, '');
     }
@@ -307,8 +368,20 @@ class VirtualMountTable {
       return (_mounts[firstSegment]!, subPath);
     }
 
+    // If there are multiple segments (e.g. "unknown_vol/data.csv") and firstSegment is neither
+    // a registered mount tag nor an existing folder/file in primary, treat it as an unknown volume tag.
+    if (segments.length > 1) {
+      final primary = _mounts['primary']!;
+      final primarySubItem = p.join(primary.path, firstSegment);
+      if (!Directory(primarySubItem).existsSync() && !File(primarySubItem).existsSync()) {
+        throw UnknownVolumeException(
+          "Unknown storage volume '$firstSegment'. Available volumes: ${_mounts.keys.join(', ')}",
+        );
+      }
+    }
+
     // Default to primary mount if tag is not an explicit registered mount tag
-    return (_mounts['primary']!, normalized);
+    return (_mounts['primary']!, cleanPath);
   }
 
   /// Formats the virtual filesystem tree representation for model prompt injection,
@@ -319,28 +392,73 @@ class VirtualMountTable {
     for (final entry in _mounts.entries) {
       final tag = entry.key;
       final dir = entry.value;
-      buffer.writeln('$tag/');
+      buffer.writeln('- $tag/');
       if (dir.existsSync()) {
         try {
-          final entities = dir.listSync(recursive: false);
+          final entities = _sortedDirectoryEntities(dir);
           if (entities.isEmpty) {
-            buffer.writeln('  (empty)');
+            buffer.writeln('    (empty)');
           } else {
-            for (final entity in entities) {
-              final name = p.basename(entity.path);
-              final isDir = entity is Directory;
-              buffer.writeln('  ├── $name${isDir ? '/' : ''}');
-            }
+            _formatTreeLevel(entities, buffer, prefix: '    ', currentDepth: 1, maxDepth: 4);
           }
         } catch (_) {
-          buffer.writeln('  (empty)');
+          buffer.writeln('    (empty)');
         }
       } else {
-        buffer.writeln('  (empty)');
+        buffer.writeln('    (empty)');
       }
     }
     buffer.write('</filesystem>');
     return buffer.toString();
+  }
+
+  static List<FileSystemEntity> _sortedDirectoryEntities(Directory dir) {
+    final list = dir.listSync(recursive: false);
+    list.sort((a, b) {
+      final aIsDir = a is Directory;
+      final bIsDir = b is Directory;
+      if (aIsDir != bIsDir) {
+        return aIsDir ? -1 : 1;
+      }
+      return p.basename(a.path).toLowerCase().compareTo(p.basename(b.path).toLowerCase());
+    });
+    return list;
+  }
+
+  static void _formatTreeLevel(
+    List<FileSystemEntity> entities,
+    StringBuffer buffer, {
+    required String prefix,
+    required int currentDepth,
+    required int maxDepth,
+  }) {
+    for (int i = 0; i < entities.length; i++) {
+      final entity = entities[i];
+      final isLast = i == entities.length - 1;
+      final branch = isLast ? '└── ' : '├── ';
+      final name = p.basename(entity.path);
+
+      if (entity is Directory) {
+        buffer.writeln('$prefix$branch$name/');
+        if (currentDepth < maxDepth) {
+          try {
+            final children = _sortedDirectoryEntities(entity);
+            if (children.isNotEmpty) {
+              final nextPrefix = prefix + (isLast ? '    ' : '│   ');
+              _formatTreeLevel(
+                children,
+                buffer,
+                prefix: nextPrefix,
+                currentDepth: currentDepth + 1,
+                maxDepth: maxDepth,
+              );
+            }
+          } catch (_) {}
+        }
+      } else {
+        buffer.writeln('$prefix$branch$name');
+      }
+    }
   }
 
   void _validateTag(String tag) {

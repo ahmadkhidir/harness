@@ -12,6 +12,7 @@ import 'core/utils/file_system_manager.dart';
 import 'data/database/app_database.dart';
 import 'data/secure_storage/key_storage_service.dart';
 import 'modules/skills/skills_module.dart';
+import 'modules/storage/storage_module.dart';
 import 'presentation/bloc/harness_session_bloc.dart';
 import 'presentation/bloc/model_switcher_bloc.dart';
 import 'presentation/bloc/model_switcher_event.dart';
@@ -56,6 +57,7 @@ void main() async {
 
     final router = CommandRouter();
     router.registerModule(SkillsModule());
+    router.registerModule(StorageModule());
     final contextBuilder = ContextBuilder();
     engine = HarnessEngine(
       router: router,
@@ -67,6 +69,7 @@ void main() async {
     keyStorage = KeyStorageService(useInMemoryFallback: true);
     final router = CommandRouter();
     router.registerModule(SkillsModule());
+    router.registerModule(StorageModule());
     final contextBuilder = ContextBuilder();
     final modelProvider = ModelProviderFactory.create(
       config: ProviderConfig(
