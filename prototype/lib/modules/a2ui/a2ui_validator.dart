@@ -52,25 +52,19 @@ class A2UIValidationResult {
 }
 
 /// Normalizes and validates incoming A2UI payloads against schema specifications.
+///
+/// Ultra-resilient component extractor:
+/// - Supports components in `createSurface.components`, `updateComponents.components`,
+///   `msg.components`, `surface.components`, or directly at root parameters.
+/// - Supports components represented as either a `List` of items or a `Map` of ID -> component.
+/// - Supports payloads wrapped in `messages: [...]` or direct single-surface payloads.
+/// - Resolves root component automatically.
 class A2UIValidator {
-  /// Base schema for top-level send_a2ui payload
-  static const Map<String, dynamic> kPayloadSchema = {
-    'type': 'object',
-    'required': ['messages'],
-    'properties': {
-      'messages': {
-        'type': 'array',
-        'minItems': 1,
-      },
-      'text': {'type': 'string'},
-    },
-  };
-
   /// Validates [payload] and returns a structured [A2UIValidationResult].
   static A2UIValidationResult validate(Map<String, dynamic>? payload) {
     if (payload == null) {
       return A2UIValidationResult.failure(
-        'A2UI payload is null. A valid send_a2ui call must contain a "messages" list.',
+        'A2UI payload is null. A valid send_a2ui call must contain a "messages" list or components.',
         errors: const [
           JsonSchemaError(
             path: '/parameters',
@@ -81,22 +75,54 @@ class A2UIValidator {
       );
     }
 
-    // Step 1: Validate top-level schema
-    final schemaRes = JsonSchemaValidator.validate(payload, kPayloadSchema, rootPath: '/parameters');
-    if (!schemaRes.isValid) {
+    // Normalize messages list: support both wrapped {"messages": [...]} and flat {"createSurface": ...}
+    List rawMessages;
+    final messagesVal = payload['messages'];
+    if (messagesVal is List && messagesVal.isNotEmpty) {
+      rawMessages = messagesVal;
+    } else if (messagesVal is Map) {
+      rawMessages = [messagesVal];
+    } else if (payload.containsKey('createSurface') ||
+        payload.containsKey('updateComponents') ||
+        payload.containsKey('components') ||
+        payload.containsKey('surface')) {
+      rawMessages = [payload];
+    } else {
       return A2UIValidationResult.failure(
-        schemaRes.formatErrorSummary(contextName: 'send_a2ui'),
-        errors: schemaRes.errors,
+        'Missing or empty "messages" list in send_a2ui parameters. Expected an array of A2UI messages (createSurface, updateComponents).',
+        errors: const [
+          JsonSchemaError(
+            path: '/parameters/messages',
+            message: 'Missing or empty messages list.',
+            keyword: 'required',
+          ),
+        ],
       );
     }
 
-    final rawMessages = payload['messages'] as List;
     final schemaErrors = <JsonSchemaError>[];
-
     String? surfaceId;
     String? catalogId;
     final componentsMap = <String, Map<String, dynamic>>{};
     final dataModel = <String, dynamic>{};
+
+    String? cleanSurfaceId(dynamic raw) {
+      if (raw == null) return null;
+      final s = raw.toString().trim();
+      if (s.isEmpty || s == 'null' || s == 'undefined') return null;
+      return s;
+    }
+
+    // Extract top-level components or dataModel if present directly on payload
+    if (payload['components'] != null) {
+      _extractComponents(payload['components'], '/parameters/components', componentsMap, schemaErrors);
+    }
+    if (payload['dataModel'] is Map) {
+      dataModel.addAll(Map<String, dynamic>.from(payload['dataModel'] as Map));
+    }
+    if (payload['surfaceId'] != null) {
+      surfaceId = cleanSurfaceId(payload['surfaceId']);
+    }
 
     for (int msgIdx = 0; msgIdx < rawMessages.length; msgIdx++) {
       final msgItem = rawMessages[msgIdx];
@@ -113,85 +139,97 @@ class A2UIValidator {
 
       final msg = Map<String, dynamic>.from(msgItem);
 
-      // Handle createSurface
+      // Top-level surfaceId on message
+      if (surfaceId == null && msg['surfaceId'] != null) {
+        surfaceId = cleanSurfaceId(msg['surfaceId']);
+      }
+
+      // 1. Handle createSurface
       if (msg.containsKey('createSurface')) {
         final createRaw = msg['createSurface'];
         if (createRaw is Map) {
           final create = Map<String, dynamic>.from(createRaw);
           if (create['surfaceId'] != null) {
-            surfaceId = create['surfaceId']?.toString();
+            surfaceId = cleanSurfaceId(create['surfaceId']) ?? surfaceId;
           }
           if (create['catalogId'] != null) {
             catalogId = create['catalogId']?.toString();
           }
 
           if (create.containsKey('components')) {
-            if (create['components'] is List) {
-              _extractAndValidateComponents(
-                create['components'] as List,
-                '$msgPath/createSurface/components',
-                componentsMap,
-                schemaErrors,
-              );
-            } else {
-              schemaErrors.add(JsonSchemaError(
-                path: '$msgPath/createSurface/components',
-                message: 'Expected components list but got ${create['components'].runtimeType}.',
-                keyword: 'type',
-              ));
-            }
+            _extractComponents(
+              create['components'],
+              '$msgPath/createSurface/components',
+              componentsMap,
+              schemaErrors,
+            );
           }
 
           if (create.containsKey('dataModel') && create['dataModel'] is Map) {
             dataModel.addAll(Map<String, dynamic>.from(create['dataModel'] as Map));
           }
-        } else {
-          schemaErrors.add(JsonSchemaError(
-            path: '$msgPath/createSurface',
-            message: 'Expected createSurface object but got ${createRaw.runtimeType}.',
-            keyword: 'type',
-          ));
         }
       }
 
-      // Handle updateComponents
+      // 2. Handle updateComponents
       if (msg.containsKey('updateComponents')) {
         final ucRaw = msg['updateComponents'];
         if (ucRaw is Map) {
           final uc = Map<String, dynamic>.from(ucRaw);
           if (surfaceId == null && uc['surfaceId'] != null) {
-            surfaceId = uc['surfaceId']?.toString();
+            surfaceId = cleanSurfaceId(uc['surfaceId']);
           }
           if (uc.containsKey('components')) {
-            if (uc['components'] is List) {
-              _extractAndValidateComponents(
-                uc['components'] as List,
-                '$msgPath/updateComponents/components',
-                componentsMap,
-                schemaErrors,
-              );
-            } else {
-              schemaErrors.add(JsonSchemaError(
-                path: '$msgPath/updateComponents/components',
-                message: 'Expected components list but got ${uc['components'].runtimeType}.',
-                keyword: 'type',
-              ));
-            }
+            _extractComponents(
+              uc['components'],
+              '$msgPath/updateComponents/components',
+              componentsMap,
+              schemaErrors,
+            );
           }
         }
       }
 
-      // Handle updateDataModel
+      // 3. Handle updateDataModel
       if (msg.containsKey('updateDataModel')) {
         final dmRaw = msg['updateDataModel'];
         if (dmRaw is Map) {
           final dm = Map<String, dynamic>.from(dmRaw);
           if (surfaceId == null && dm['surfaceId'] != null) {
-            surfaceId = dm['surfaceId']?.toString();
+            surfaceId = cleanSurfaceId(dm['surfaceId']);
           }
           if (dm['value'] != null && dm['value'] is Map) {
             dataModel.addAll(Map<String, dynamic>.from(dm['value'] as Map));
           }
+          if (dm['dataModel'] != null && dm['dataModel'] is Map) {
+            dataModel.addAll(Map<String, dynamic>.from(dm['dataModel'] as Map));
+          }
+        }
+      }
+
+      // 4. Handle direct message-level components (e.g. {"surfaceId": "main", "components": [...]})
+      if (msg.containsKey('components')) {
+        _extractComponents(
+          msg['components'],
+          '$msgPath/components',
+          componentsMap,
+          schemaErrors,
+        );
+      }
+
+      // 5. Handle surface wrapper (e.g. {"surface": {"surfaceId": "main", "components": [...]}})
+      if (msg.containsKey('surface') && msg['surface'] is Map) {
+        final sMap = Map<String, dynamic>.from(msg['surface'] as Map);
+        if (surfaceId == null && sMap['surfaceId'] != null) {
+          surfaceId = cleanSurfaceId(sMap['surfaceId']);
+        }
+        if (sMap.containsKey('components')) {
+          _extractComponents(
+            sMap['components'],
+            '$msgPath/surface/components',
+            componentsMap,
+            schemaErrors,
+          );
         }
       }
     }
@@ -202,11 +240,11 @@ class A2UIValidator {
       return A2UIValidationResult.failure(summary, errors: schemaErrors, surfaceId: surfaceId);
     }
 
-    surfaceId ??= 'main';
+    surfaceId = cleanSurfaceId(surfaceId) ?? 'main';
 
     if (componentsMap.isEmpty) {
       return A2UIValidationResult.failure(
-        'No components defined for surface "$surfaceId". Specify components inside "createSurface.components" or "updateComponents.components".',
+        'No components defined for surface "$surfaceId". Specify components inside "createSurface.components" or "updateComponents.components" as either a list of component objects or an ID-to-component dictionary.',
         surfaceId: surfaceId,
         errors: [
           JsonSchemaError(
@@ -243,50 +281,113 @@ class A2UIValidator {
     );
   }
 
-  static void _extractAndValidateComponents(
-    List comps,
+  /// Extracts components from either a [List] or a [Map] (keyed by ID).
+  static void _extractComponents(
+    dynamic comps,
     String basePath,
     Map<String, Map<String, dynamic>> componentsMap,
     List<JsonSchemaError> schemaErrors,
   ) {
-    for (int i = 0; i < comps.length; i++) {
-      final c = comps[i];
-      final compPath = '$basePath/$i';
+    if (comps == null) return;
 
-      if (c is! Map) {
-        schemaErrors.add(JsonSchemaError(
-          path: compPath,
-          message: 'Expected component object but got ${c.runtimeType}.',
-          keyword: 'type',
-        ));
-        continue;
-      }
-
-      final cMap = Map<String, dynamic>.from(c);
-      final id = cMap['id']?.toString();
-      if (id == null || id.trim().isEmpty) {
+    void processComponent(Map<String, dynamic> cMap, String defaultId, String compPath) {
+      final idRaw = cMap['id']?.toString() ?? defaultId;
+      final id = idRaw.trim();
+      if (id.isEmpty) {
         schemaErrors.add(JsonSchemaError(
           path: '$compPath/id',
           message: 'Component is missing required property "id".',
           keyword: 'required',
         ));
-        continue;
+        return;
       }
 
-      // Check discriminator: support both 'component' and 'type'
-      final componentType = cMap['component']?.toString() ?? cMap['type']?.toString();
+      // Handle nested component wrappers like {"component": {"Card": {...}}}
+      if (cMap['component'] is Map) {
+        final compObj = cMap['component'] as Map;
+        if (compObj.isNotEmpty) {
+          final firstKey = compObj.keys.first.toString();
+          final innerProps = compObj[firstKey];
+          cMap['component'] = firstKey;
+          cMap['type'] = firstKey;
+          if (innerProps is Map) {
+            cMap.addAll(Map<String, dynamic>.from(innerProps));
+          }
+        }
+      }
+      if (cMap['type'] is Map) {
+        final compObj = cMap['type'] as Map;
+        if (compObj.isNotEmpty) {
+          final firstKey = compObj.keys.first.toString();
+          final innerProps = compObj[firstKey];
+          cMap['component'] = firstKey;
+          cMap['type'] = firstKey;
+          if (innerProps is Map) {
+            cMap.addAll(Map<String, dynamic>.from(innerProps));
+          }
+        }
+      }
+
+      final componentType = cMap['component']?.toString() ??
+          cMap['type']?.toString() ??
+          cMap['componentType']?.toString() ??
+          cMap['widget']?.toString();
+
       if (componentType == null || componentType.trim().isEmpty) {
         schemaErrors.add(JsonSchemaError(
           path: '$compPath/component',
           message: 'Component "$id" is missing required discriminator ("component" or "type").',
           keyword: 'required',
         ));
-        continue;
+        return;
       }
 
+      cMap['id'] = id;
       cMap['component'] = componentType.trim();
       cMap['type'] = componentType.trim();
-      componentsMap[id.trim()] = cMap;
+      componentsMap[id] = cMap;
+    }
+
+    if (comps is List) {
+      for (int i = 0; i < comps.length; i++) {
+        final c = comps[i];
+        final compPath = '$basePath/$i';
+
+        if (c is! Map) {
+          schemaErrors.add(JsonSchemaError(
+            path: compPath,
+            message: 'Expected component object but got ${c.runtimeType}.',
+            keyword: 'type',
+          ));
+          continue;
+        }
+
+        processComponent(Map<String, dynamic>.from(c), '', compPath);
+      }
+    } else if (comps is Map) {
+      // Map of ID -> component object: {"root": {"component": "Card", ...}}
+      for (final entry in comps.entries) {
+        final id = entry.key.toString().trim();
+        final compVal = entry.value;
+        final compPath = '$basePath/$id';
+
+        if (compVal is! Map) {
+          schemaErrors.add(JsonSchemaError(
+            path: compPath,
+            message: 'Expected component object for "$id" but got ${compVal.runtimeType}.',
+            keyword: 'type',
+          ));
+          continue;
+        }
+
+        processComponent(Map<String, dynamic>.from(compVal), id, compPath);
+      }
+    } else {
+      schemaErrors.add(JsonSchemaError(
+        path: basePath,
+        message: 'Expected components list or map but got ${comps.runtimeType}.',
+        keyword: 'type',
+      ));
     }
   }
 

@@ -283,6 +283,57 @@ void main() {
       expect(find.byKey(const Key('custom_metric_badge')), findsOneWidget);
       expect(find.text('GDP Growth: +4.2%'), findsOneWidget);
     });
+
+    testWidgets('renders components specified as an ID-to-component Map dictionary', (tester) async {
+      final mapPayload = {
+        'messages': [
+          {
+            'createSurface': {
+              'surfaceId': 'null', // Malformed surfaceId string "null"
+              'catalogId': 'basic/v1',
+              'components': {
+                'root': {
+                  'component': 'Card',
+                  'child': 'text_1',
+                },
+                'text_1': {
+                  'component': 'Text',
+                  'text': 'Rendered from Map Dictionary',
+                  'variant': 'title',
+                },
+              },
+            },
+          },
+        ],
+      };
+
+      await tester.pumpWidget(buildTestWidget(payload: mapPayload));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(Card), findsOneWidget);
+      expect(find.text('Rendered from Map Dictionary'), findsOneWidget);
+      expect(find.textContaining('A2UI notice:'), findsNothing);
+    });
+
+    testWidgets('renders flat createSurface payload without messages wrapper array', (tester) async {
+      final flatPayload = {
+        'createSurface': {
+          'surfaceId': 'flat_surface',
+          'components': [
+            {
+              'id': 'root',
+              'component': {'Text': {'text': 'Flat Payload Rendered'}},
+            },
+          ],
+        },
+      };
+
+      await tester.pumpWidget(buildTestWidget(payload: flatPayload));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Flat Payload Rendered'), findsOneWidget);
+      expect(find.textContaining('A2UI notice:'), findsNothing);
+    });
   });
 }
 
