@@ -46,9 +46,6 @@ class _FakeModelProvider extends ModelProvider {
       apiKey: apiKey,
     );
   }
-
-  @override
-  Future<bool> testConnection({String? apiKey}) async => true;
 }
 
 void main() {
