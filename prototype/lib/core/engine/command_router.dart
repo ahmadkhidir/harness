@@ -1,6 +1,7 @@
 import '../models/command_definition.dart';
 import '../models/system_call.dart';
 import '../models/system_response.dart';
+import '../schema/json_schema_validator.dart';
 import '../../modules/base/harness_module.dart';
 
 /// Progress callback invoked whenever an individual system call completes during a turn.
@@ -48,7 +49,7 @@ class CommandRouter {
     if (call.command == 'malformed_json_error') {
       return SystemResponse.error(
         command: call.command,
-        errorMessage: 'Invalid command or malformed JSON: ${call.parameters['error'] ?? 'Malformed JSON'}',
+        errorMessage: 'Invalid command or malformed JSON:\n${call.parameters['error'] ?? 'Malformed JSON inside <system_call> block.'}',
       );
     }
 
@@ -58,6 +59,22 @@ class CommandRouter {
         command: call.command,
         errorMessage: 'Unknown command or invalid JSON: "${call.command}" is not registered in Harness.',
       );
+    }
+
+    // Universal JSON Schema verification: validate parameters against command's published schema
+    final cmdDef = _commandDefinitions[call.command];
+    if (cmdDef != null && cmdDef.parametersSchema.isNotEmpty) {
+      final validation = JsonSchemaValidator.validate(
+        call.parameters,
+        cmdDef.parametersSchema,
+        rootPath: '/parameters',
+      );
+      if (!validation.isValid) {
+        return SystemResponse.error(
+          command: call.command,
+          errorMessage: validation.formatErrorSummary(contextName: call.command),
+        );
+      }
     }
 
     try {

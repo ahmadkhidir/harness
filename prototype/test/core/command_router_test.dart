@@ -125,6 +125,63 @@ void main() {
       expect(responses[2].isSuccess, isTrue);
       expect(responses[2].data, 'slow_done');
     });
+
+    test('verifies parameters against published schema and returns located error', () async {
+      // Register a module with strict parametersSchema
+      final strictModule = _StrictSchemaModule();
+      router.registerModule(strictModule);
+
+      // Missing required property
+      final invalidCall = SystemCall(
+        command: 'strict_cmd',
+        parameters: {'count': 5}, // missing required 'title'
+      );
+      final response = await router.executeCall(invalidCall);
+
+      expect(response.isError, isTrue);
+      expect(response.errorMessage, contains('Schema validation failed for "strict_cmd"'));
+      expect(response.errorMessage, contains('at /parameters/title'));
+      expect(response.errorMessage, contains('Required property "title" is missing'));
+
+      // Wrong type
+      final wrongTypeCall = SystemCall(
+        command: 'strict_cmd',
+        parameters: {'title': 'Valid', 'count': 'not_a_number'},
+      );
+      final wrongTypeResponse = await router.executeCall(wrongTypeCall);
+      expect(wrongTypeResponse.isError, isTrue);
+      expect(wrongTypeResponse.errorMessage, contains('at /parameters/count'));
+      expect(wrongTypeResponse.errorMessage, contains('Expected type "integer"'));
+    });
   });
+}
+
+class _StrictSchemaModule extends HarnessModule {
+  @override
+  String get moduleName => 'strict_module';
+
+  @override
+  List<CommandDefinition> get commands => [
+        CommandDefinition(
+          command: 'strict_cmd',
+          description: 'A command with strict schema validation',
+          parametersSchema: const {
+            'type': 'object',
+            'required': ['title'],
+            'properties': {
+              'title': {'type': 'string'},
+              'count': {'type': 'integer'},
+            },
+          },
+        ),
+      ];
+
+  @override
+  Future<SystemResponse> executeCommand(
+    String command,
+    Map<String, dynamic> parameters,
+  ) async {
+    return SystemResponse.success(command: command, data: 'ok');
+  }
 }
 
