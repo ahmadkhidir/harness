@@ -51,42 +51,46 @@ class MessageBubble extends StatelessWidget {
         crossAxisAlignment:
             isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                isUser ? 'You' : 'Harness Agent',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                timeStr,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.outline.withValues(alpha: 0.8),
-                ),
-              ),
-              if (!isUser && turn.toolCalls.isNotEmpty) ...[
-                const SizedBox(width: 4),
-                IconButton(
-                  key: ValueKey('turn_tool_calls_button_${turn.id}'),
-                  icon: const Icon(Icons.expand_more),
-                  iconSize: 18,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 24,
-                    minHeight: 24,
-                  ),
-                  tooltip: 'Show tool calls (${turn.toolCalls.length})',
-                  onPressed: () => showToolCallsBottomSheet(
-                    context,
-                    turn.toolCalls,
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  isUser ? 'You' : 'Harness Agent',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.outline,
                   ),
                 ),
+                const SizedBox(width: 6),
+                Text(
+                  timeStr,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.outline.withValues(alpha: 0.8),
+                  ),
+                ),
+                if (!isUser && turn.toolCalls.isNotEmpty) ...[
+                  const SizedBox(width: 4),
+                  IconButton(
+                    key: ValueKey('turn_tool_calls_button_${turn.id}'),
+                    icon: const Icon(Icons.expand_more),
+                    iconSize: 18,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 24,
+                      minHeight: 24,
+                    ),
+                    tooltip: 'Show tool calls (${turn.toolCalls.length})',
+                    onPressed: () => showToolCallsBottomSheet(
+                      context,
+                      turn.toolCalls,
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
           const SizedBox(height: 4),
           GestureDetector(
