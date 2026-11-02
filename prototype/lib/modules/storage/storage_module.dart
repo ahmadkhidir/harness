@@ -18,10 +18,55 @@ import '../base/harness_module.dart';
 ///   5. `list_directory`: Lists directory entries within a virtual folder.
 class StorageModule extends HarnessModule {
   final HarnessFileSystem? fileSystem;
+  String? activeSessionId;
 
-  StorageModule({this.fileSystem});
+  StorageModule({this.fileSystem, this.activeSessionId});
 
   HarnessFileSystem get fs => fileSystem ?? HarnessFileSystem.instance!;
+
+  String? get effectiveSessionId => activeSessionId ?? fs.activeSessionId;
+
+  void _checkSiblingSessionAccess(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    final segments = normalized.split('/').where((s) => s.isNotEmpty).toList();
+    final sessIdx = segments.indexOf('sessions');
+    if (sessIdx != -1) {
+      if (sessIdx + 1 < segments.length) {
+        final targetSessId = segments[sessIdx + 1];
+        if (targetSessId != effectiveSessionId) {
+          throw SecurityException(
+            'Access denied: Sibling session access is prohibited.',
+          );
+        }
+      } else {
+        // Attempting to access or list the sessions directory itself
+        throw SecurityException(
+          'Access denied: Sibling session access is prohibited.',
+        );
+      }
+    }
+  }
+
+  File _resolveVirtualFile(String virtualPath) {
+    _checkSiblingSessionAccess(virtualPath);
+    final clean = virtualPath.replaceAll('\\', '/').trim();
+    if (clean == 'context.txt' || clean == 'primary/context.txt') {
+      final sessId = effectiveSessionId;
+      if (sessId != null) {
+        return fs.sessionContextFile(sessId);
+      }
+    }
+    if (effectiveSessionId != null &&
+        clean == 'sessions/$effectiveSessionId/context.txt') {
+      return fs.sessionContextFile(effectiveSessionId!);
+    }
+    return fs.mounts.resolveVirtualFile(virtualPath);
+  }
+
+  Directory _resolveVirtualDir(String virtualPath) {
+    _checkSiblingSessionAccess(virtualPath);
+    return fs.mounts.resolveVirtualDir(virtualPath);
+  }
 
   @override
   String get moduleName => 'storage';
@@ -194,7 +239,7 @@ class StorageModule extends HarnessModule {
       );
     }
 
-    final file = fs.mounts.resolveVirtualFile(virtualPath);
+    final file = _resolveVirtualFile(virtualPath);
     if (!file.existsSync()) {
       return SystemResponse.error(
         command: 'read_file',
@@ -286,7 +331,7 @@ class StorageModule extends HarnessModule {
       );
     }
 
-    final file = fs.mounts.resolveVirtualFile(virtualPath);
+    final file = _resolveVirtualFile(virtualPath);
 
     // Automatically synthesize parent directories if they don't exist
     if (!file.parent.existsSync()) {
@@ -318,6 +363,8 @@ class StorageModule extends HarnessModule {
       );
     }
 
+    _checkSiblingSessionAccess(targetPath);
+
     RegExp regex;
     try {
       regex = RegExp(pattern, caseSensitive: caseSensitive);
@@ -327,16 +374,29 @@ class StorageModule extends HarnessModule {
 
     final filesToSearch = <File>[];
 
-    // Check if target is a file or a directory
-    try {
-      final possibleFile = fs.mounts.resolveVirtualFile(targetPath);
-      if (possibleFile.existsSync() && possibleFile is! Directory) {
-        filesToSearch.add(possibleFile);
+    final cleanTarget = targetPath.replaceAll('\\', '/').trim();
+    if (cleanTarget == 'context.txt' || cleanTarget == 'primary/context.txt') {
+      final sessId = effectiveSessionId;
+      if (sessId != null) {
+        final ctxFile = fs.sessionContextFile(sessId);
+        if (ctxFile.existsSync()) {
+          filesToSearch.add(ctxFile);
+        }
       }
-    } catch (_) {}
+    }
+
+    // Check if target is a file or a directory
+    if (filesToSearch.isEmpty) {
+      try {
+        final possibleFile = _resolveVirtualFile(targetPath);
+        if (possibleFile.existsSync() && possibleFile is! Directory) {
+          filesToSearch.add(possibleFile);
+        }
+      } catch (_) {}
+    }
 
     if (filesToSearch.isEmpty) {
-      final dir = fs.mounts.resolveVirtualDir(targetPath);
+      final dir = _resolveVirtualDir(targetPath);
       if (!dir.existsSync()) {
         return SystemResponse.error(
           command: 'grep',
@@ -356,7 +416,9 @@ class StorageModule extends HarnessModule {
     for (final file in filesToSearch) {
       try {
         final lines = file.readAsLinesSync();
-        final vPath = fs.mounts.toVirtualPath(file);
+        final isContextFile = effectiveSessionId != null &&
+            file.path == fs.sessionContextFile(effectiveSessionId!).path;
+        final vPath = isContextFile ? 'context.txt' : fs.mounts.toVirtualPath(file);
 
         for (int i = 0; i < lines.length; i++) {
           final line = lines[i];
@@ -397,7 +459,7 @@ class StorageModule extends HarnessModule {
       );
     }
 
-    final dir = fs.mounts.resolveVirtualDir(targetPath);
+    final dir = _resolveVirtualDir(targetPath);
     if (!dir.existsSync()) {
       return SystemResponse.error(
         command: 'glob',
@@ -432,7 +494,7 @@ class StorageModule extends HarnessModule {
   SystemResponse _handleListDirectory(Map<String, dynamic> parameters) {
     final targetPath = (parameters['path'] as String?)?.trim() ?? 'primary';
 
-    final dir = fs.mounts.resolveVirtualDir(targetPath);
+    final dir = _resolveVirtualDir(targetPath);
     if (!dir.existsSync()) {
       return SystemResponse.error(
         command: 'list_directory',

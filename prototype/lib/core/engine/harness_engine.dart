@@ -57,6 +57,8 @@ class HarnessEngine {
   }) async* {
     yield EngineTurnStarted(userPrompt);
 
+    HarnessFileSystem.instance?.activeSessionId = sessionId;
+
     final resolvedStorageTree = storageTree ??
         (HarnessFileSystem.instance?.formatFilesystemTree() ??
             '<filesystem>\nprimary/\n  (empty)\n</filesystem>');
