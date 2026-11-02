@@ -11,13 +11,14 @@ import 'core/routes/app_routes.dart';
 import 'core/utils/file_system_manager.dart';
 import 'data/database/app_database.dart';
 import 'data/secure_storage/key_storage_service.dart';
+import 'data/services/session_service.dart';
 import 'modules/skills/skills_module.dart';
 import 'modules/storage/storage_module.dart';
 import 'presentation/bloc/harness_session_bloc.dart';
 import 'presentation/bloc/model_switcher_bloc.dart';
 import 'presentation/bloc/model_switcher_event.dart';
 import 'presentation/screens/chat_screen.dart';
-import 'presentation/screens/placeholder_screen.dart';
+import 'presentation/screens/sessions_screen.dart';
 import 'presentation/screens/settings_screen.dart';
 import 'presentation/screens/workspace_screen.dart';
 import 'providers/model_provider_factory.dart';
@@ -157,6 +158,10 @@ class _HarnessAppState extends State<HarnessApp> {
     _harnessSessionBloc = HarnessSessionBloc(
       engine: _engine,
       keyStorage: _keyStorage,
+      sessionService: SessionService(
+        database: _database,
+        fileSystem: HarnessFileSystem.instance,
+      ),
     );
   }
 
@@ -196,10 +201,7 @@ class _HarnessAppState extends State<HarnessApp> {
         routes: {
           AppRoutes.chat: (_) => const ChatScreen(),
           AppRoutes.settings: (_) => const SettingsScreen(),
-          AppRoutes.sessions: (_) => const PlaceholderScreen(
-                title: 'Sessions Management',
-                featureName: 'FEAT-005',
-              ),
+          AppRoutes.sessions: (_) => const SessionsScreen(),
           AppRoutes.workspace: (_) => const WorkspaceScreen(),
         },
       ),
