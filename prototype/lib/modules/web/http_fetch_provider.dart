@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import '../../core/utils/network_guard.dart';
 import 'html_to_markdown.dart';
 import 'web_providers.dart';
 
@@ -147,73 +148,11 @@ class HttpWebFetchProvider implements WebFetchProvider {
 
   /// Validates scheme and host before any request is sent.
   Uri _validateTarget(Uri? uri) {
-    if (uri == null || uri.scheme.isEmpty || uri.host.isEmpty) {
-      throw const WebBridgeException(
-        'Invalid URL: expected an absolute http(s) URL.',
-      );
+    try {
+      return assertPublicHttpUri(uri);
+    } on UnsafeNetworkTargetException catch (e) {
+      throw WebBridgeException(e.message);
     }
-
-    final scheme = uri.scheme.toLowerCase();
-    if (scheme != 'http' && scheme != 'https') {
-      throw WebBridgeException(
-        'Unsupported URL scheme "${uri.scheme}". Only http and https are allowed.',
-      );
-    }
-
-    if (_isPrivateHost(uri.host)) {
-      throw WebBridgeException(
-        'Refusing to fetch a loopback, private, or link-local host: ${uri.host}.',
-      );
-    }
-
-    return uri;
-  }
-
-  /// Conservative literal-host check; DNS resolution is intentionally not used
-  /// so validation stays deterministic and offline-testable.
-  bool _isPrivateHost(String host) {
-    final value = host
-        .toLowerCase()
-        .replaceAll('[', '')
-        .replaceAll(']', '')
-        .trim();
-
-    if (value.isEmpty) return true;
-    if (value == 'localhost' ||
-        value.endsWith('.localhost') ||
-        value.endsWith('.local') ||
-        value == 'metadata.google.internal') {
-      return true;
-    }
-
-    if (value.contains(':')) {
-      if (value == '::1' || value == '::' || value.startsWith('fe80')) {
-        return true;
-      }
-      // Unique local addresses (fc00::/7) and IPv4-mapped loopback.
-      if (value.startsWith('fc') || value.startsWith('fd')) return true;
-      if (value.startsWith('::ffff:127.') || value.startsWith('::ffff:10.')) {
-        return true;
-      }
-    }
-
-    final parts = value.split('.');
-    if (parts.length != 4) return false;
-
-    final octets = parts.map(int.tryParse).toList();
-    if (octets.any((octet) => octet == null || octet < 0 || octet > 255)) {
-      return false;
-    }
-
-    final a = octets[0]!;
-    final b = octets[1]!;
-    if (a == 0 || a == 10 || a == 127) return true;
-    if (a == 169 && b == 254) return true;
-    if (a == 172 && b >= 16 && b <= 31) return true;
-    if (a == 192 && b == 168) return true;
-    if (a == 100 && b >= 64 && b <= 127) return true;
-
-    return false;
   }
 
   bool _isRedirect(int statusCode) =>
