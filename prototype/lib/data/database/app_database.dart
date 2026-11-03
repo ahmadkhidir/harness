@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/models/provider_config.dart';
+import '../../core/utils/network_guard.dart';
 
 /// Persistent configuration and settings storage manager for Harness.
 ///
@@ -26,6 +27,7 @@ class AppDatabase {
   static const String _activeSessionIdKey = 'harness_active_session_id';
   static const String _searchProviderKey = 'harness_bridge_search_provider';
   static const String _runnerEndpointKey = 'harness_bridge_runner_endpoint';
+  static const String _allowedHostsKey = 'harness_bridge_allowed_hosts';
 
   /// Search provider identifiers accepted by the external web bridge.
   static const Set<String> supportedSearchProviders = {
@@ -195,6 +197,48 @@ class AppDatabase {
     }
 
     await _write(_runnerEndpointKey, trimmed);
+  }
+
+  /// Retrieves the hosts approved for outbound `http_request` calls.
+  ///
+  /// Entries are normalized to lowercase hostnames or `host:port` values and
+  /// invalid persisted entries are ignored.
+  Future<List<String>> getAllowedHosts() async {
+    final raw = await _read(_allowedHostsKey);
+    if (raw == null || raw.isEmpty) return const [];
+
+    try {
+      final decoded = json.decode(raw);
+      if (decoded is! List) return const [];
+      final normalized = decoded
+          .map((entry) => normalizeHostEntry(entry.toString()))
+          .whereType<String>()
+          .toSet()
+          .toList()
+        ..sort();
+      return List.unmodifiable(normalized);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Persists the approved `http_request` hosts.
+  ///
+  /// Throws [ArgumentError] when any entry is not a bare hostname or `host:port`.
+  Future<void> setAllowedHosts(Iterable<String> hosts) async {
+    final normalized = <String>{};
+    for (final host in hosts) {
+      final entry = normalizeHostEntry(host);
+      if (entry == null) {
+        throw ArgumentError(
+          'Invalid host entry "$host". Use a hostname or host:port.',
+        );
+      }
+      normalized.add(entry);
+    }
+
+    final ordered = normalized.toList()..sort();
+    await _write(_allowedHostsKey, json.encode(ordered));
   }
 
   /// Retrieves all configured model providers.

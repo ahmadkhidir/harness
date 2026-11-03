@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import '../../core/models/on_device_model_spec.dart';
 import '../../core/models/provider_config.dart';
 import '../../core/utils/file_system_manager.dart';
+import '../../core/utils/network_guard.dart';
 import '../../core/utils/storage_permission_service.dart';
 import '../../data/database/app_database.dart';
 import '../../data/secure_storage/key_storage_service.dart';
@@ -85,6 +86,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _braveKeyController = TextEditingController();
   final TextEditingController _runnerEndpointController =
       TextEditingController();
+  final TextEditingController _allowedHostController = TextEditingController();
+  List<String> _allowedHosts = [];
   bool _obscureBridgeKey = true;
   bool _hasTavilyKey = false;
   bool _hasBraveKey = false;
@@ -106,10 +109,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     String? endpoint;
     var hasTavily = false;
     var hasBrave = false;
+    var allowedHosts = <String>[];
 
     try {
       providerId = await db.getSearchProviderId();
       endpoint = await db.getRunnerEndpoint();
+      allowedHosts = await db.getAllowedHosts();
       hasTavily = await keyStorage.hasApiKey('tavily');
       hasBrave = await keyStorage.hasApiKey('brave');
     } catch (_) {
@@ -120,8 +125,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _searchProviderId = providerId;
       _runnerEndpointController.text = endpoint ?? '';
+      _allowedHosts = allowedHosts;
       _hasTavilyKey = hasTavily;
       _hasBraveKey = hasBrave;
+    });
+  }
+
+  /// Adds a validated host to the pending `http_request` allowlist.
+  void _addAllowedHost() {
+    final entry = normalizeHostEntry(_allowedHostController.text);
+    if (entry == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Enter a hostname or host:port (for example api.example.com).',
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      if (!_allowedHosts.contains(entry)) {
+        _allowedHosts = [..._allowedHosts, entry]..sort();
+      }
+      _allowedHostController.clear();
+    });
+  }
+
+  /// Removes a host from the pending `http_request` allowlist.
+  void _removeAllowedHost(String host) {
+    setState(() {
+      _allowedHosts = _allowedHosts.where((entry) => entry != host).toList();
     });
   }
 
@@ -133,6 +168,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await db.setSearchProviderId(_searchProviderId);
       await db.setRunnerEndpoint(_runnerEndpointController.text);
+      await db.setAllowedHosts(_allowedHosts);
 
       final tavilyKey = _tavilyKeyController.text.trim();
       if (tavilyKey.isNotEmpty) {
@@ -331,6 +367,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _tavilyKeyController.dispose();
     _braveKeyController.dispose();
     _runnerEndpointController.dispose();
+    _allowedHostController.dispose();
     super.dispose();
   }
 
@@ -1590,6 +1627,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 prefixIcon: Icon(Icons.dns_outlined),
               ),
             ),
+            const SizedBox(height: 20),
+            Text(
+              'Allowed Hosts',
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Hosts approved for http_request. Downloads are not restricted by this list.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _allowedHostController,
+                    decoration: const InputDecoration(
+                      labelText: 'Add host',
+                      hintText: 'api.example.com or api.example.com:8443',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.public),
+                    ),
+                    onSubmitted: (_) => _addAllowedHost(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  icon: const Icon(Icons.add),
+                  tooltip: 'Add host',
+                  onPressed: _addAllowedHost,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (_allowedHosts.isEmpty)
+              Text(
+                'No hosts allowed. http_request is blocked until a host is added and saved.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: Colors.orange.shade800,
+                ),
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: _allowedHosts
+                    .map(
+                      (host) => InputChip(
+                        label: Text(host),
+                        onDeleted: () => _removeAllowedHost(host),
+                      ),
+                    )
+                    .toList(),
+              ),
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,

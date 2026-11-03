@@ -235,6 +235,20 @@ void main() {
       expect(find.text('Tavily API Key'), findsOneWidget);
       expect(find.text('Brave API Key'), findsNothing);
 
+      await tester.scrollUntilVisible(
+        find.text('Allowed Hosts'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Add host'),
+        'API.Example.com',
+      );
+      await tester.tap(find.byTooltip('Add host'));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(InputChip, 'api.example.com'), findsOneWidget);
+
       await tester.pumpWidget(const SizedBox());
       switcherBloc.close();
     },

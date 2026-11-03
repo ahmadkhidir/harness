@@ -72,4 +72,7 @@ class BridgeSettingsService {
 
   /// Builds the provider used by `web_fetch`.
   WebFetchProvider createFetchProvider() => HttpWebFetchProvider(client: client);
+
+  /// Returns the hosts approved for `http_request`.
+  Future<List<String>> getAllowedHosts() => database.getAllowedHosts();
 }

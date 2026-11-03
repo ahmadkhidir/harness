@@ -19,6 +19,7 @@ import 'modules/platform_actions/platform_actions_module.dart';
 import 'modules/runner/runner_module.dart';
 import 'modules/skills/skills_module.dart';
 import 'modules/storage/storage_module.dart';
+import 'modules/transfer/transfer_module.dart';
 import 'modules/web/web_module.dart';
 import 'presentation/bloc/harness_session_bloc.dart';
 import 'presentation/bloc/model_switcher_bloc.dart';
@@ -78,6 +79,10 @@ void main() async {
     router.registerModule(RunnerModule(
       runnerProviderFactory: bridgeSettings.createRunnerProvider,
     ));
+    router.registerModule(TransferModule(
+      allowedHostsProvider: bridgeSettings.getAllowedHosts,
+      fileSystemProvider: () => HarnessFileSystem.instance,
+    ));
     final contextBuilder = ContextBuilder();
     engine = HarnessEngine(
       router: router,
@@ -102,6 +107,10 @@ void main() async {
     ));
     router.registerModule(RunnerModule(
       runnerProviderFactory: bridgeSettings.createRunnerProvider,
+    ));
+    router.registerModule(TransferModule(
+      allowedHostsProvider: bridgeSettings.getAllowedHosts,
+      fileSystemProvider: () => HarnessFileSystem.instance,
     ));
     final contextBuilder = ContextBuilder();
     final modelProvider = ModelProviderFactory.create(
@@ -179,6 +188,10 @@ class _HarnessAppState extends State<HarnessApp> {
       ));
       router.registerModule(RunnerModule(
         runnerProviderFactory: bridgeSettings.createRunnerProvider,
+      ));
+      router.registerModule(TransferModule(
+        allowedHostsProvider: bridgeSettings.getAllowedHosts,
+        fileSystemProvider: () => HarnessFileSystem.instance,
       ));
       final contextBuilder = ContextBuilder();
       final defaultProvider = ModelProviderFactory.create(
