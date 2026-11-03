@@ -29,10 +29,10 @@ class A2UIModule extends HarnessModule {
             'properties': {
               'catalog': {
                 'type': 'string',
-                'description': 'Catalog identifier to load, e.g. "basic/v1".',
+                'description':
+                    'Catalog identifier to load. Defaults to "basic/v1" when omitted.',
               },
             },
-            'required': ['catalog'],
           },
         ),
         CommandDefinition(
@@ -77,15 +77,10 @@ class A2UIModule extends HarnessModule {
   }
 
   SystemResponse _handleLoadCatalog(Map<String, dynamic> parameters) {
+    // basic/v1 is the built-in default; omitting the catalog should not fail.
     final catalog = parameters['catalog'] as String?;
-    if (catalog == null || catalog.trim().isEmpty) {
-      return SystemResponse.error(
-        command: 'load_a2ui_catalog',
-        errorMessage: 'Missing required parameter "catalog".',
-      );
-    }
-
-    final cleanCatalog = catalog.trim();
+    final cleanCatalog =
+        (catalog == null || catalog.trim().isEmpty) ? 'basic/v1' : catalog.trim();
     final catalogDef = A2UICatalogRegistry.instance.get(cleanCatalog);
     if (catalogDef != null) {
       return SystemResponse.success(

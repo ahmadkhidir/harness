@@ -121,11 +121,42 @@ class A2UIComponentRegistry {
   }
 
   // --- 1. Card ---
+  /// Visible placeholder for structurally incomplete components.
+  static Widget _buildInvalid(BuildContext context, String message) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.errorContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.error_outline, size: 18, color: theme.colorScheme.error),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              message,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onErrorContainer,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   static Widget _buildCard(BuildContext context, A2UIComponentContext ctx) {
     final theme = Theme.of(context);
     final childId = ctx.properties['child']?.toString();
     final elevation = (ctx.properties['elevation'] as num?)?.toDouble() ?? 1.0;
     final padding = (ctx.properties['padding'] as num?)?.toDouble() ?? 12.0;
+
+    if (childId == null || childId.trim().isEmpty) {
+      return _buildInvalid(context, 'Card requires a "child" component ID.');
+    }
 
     return Card(
       elevation: elevation,
@@ -138,9 +169,7 @@ class A2UIComponentRegistry {
       ),
       child: Padding(
         padding: EdgeInsets.all(padding),
-        child: childId != null
-            ? ctx.buildChild(childId)
-            : const SizedBox.shrink(),
+        child: ctx.buildChild(childId),
       ),
     );
   }
@@ -152,6 +181,10 @@ class A2UIComponentRegistry {
 
     final crossAlign = _parseCrossAxisAlignment(ctx.properties['crossAxisAlignment'] ?? ctx.properties['alignment']);
     final mainAlign = _parseMainAxisAlignment(ctx.properties['mainAxisAlignment']);
+
+    if (childrenIds.isEmpty) {
+      return _buildInvalid(context, 'Column requires "children" IDs.');
+    }
 
     final childrenWidgets = ctx.buildChildren(childrenIds);
     if (spacing <= 0 || childrenWidgets.length <= 1) {
@@ -183,6 +216,10 @@ class A2UIComponentRegistry {
   static Widget _buildRow(BuildContext context, A2UIComponentContext ctx) {
     final childrenIds = _extractStringList(ctx.properties['children']);
     final spacing = (ctx.properties['spacing'] as num?)?.toDouble() ?? 8.0;
+
+    if (childrenIds.isEmpty) {
+      return _buildInvalid(context, 'Row requires "children" IDs.');
+    }
 
     final crossAlign = _parseRowCrossAxisAlignment(ctx.properties['crossAxisAlignment']);
     final mainAlign = _parseMainAxisAlignment(ctx.properties['mainAxisAlignment'] ?? ctx.properties['alignment']);
@@ -451,6 +488,11 @@ class A2UIComponentRegistry {
     final childrenProp = ctx.properties['children'];
     final direction = ctx.properties['direction']?.toString() ?? 'vertical';
     final isHorizontal = direction == 'horizontal';
+
+    if (childrenProp == null ||
+        (childrenProp is List && childrenProp.isEmpty)) {
+      return _buildInvalid(context, 'List requires "children" or a template.');
+    }
 
     // Case A: Dynamic list using template binding: `{"path": "/breeds", "componentId": "breedTemplate"}`
     if (childrenProp is Map && childrenProp['path'] != null && childrenProp['componentId'] != null) {

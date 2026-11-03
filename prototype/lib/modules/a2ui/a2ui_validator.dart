@@ -1,4 +1,6 @@
 import '../../core/schema/json_schema_validator.dart';
+import 'catalogs/basic_v1_component_schemas.dart';
+import 'widgets/a2ui_component_registry.dart';
 
 /// Result of validating and normalizing an A2UI payload.
 class A2UIValidationResult {
@@ -234,6 +236,54 @@ class A2UIValidator {
       }
     }
 
+    // Validate each component's shape against the basic/v1 JSON Schemas so
+    // structural mistakes (for example `children` on a Card) fail here and
+    // trigger the engine's repair loop instead of rendering a broken surface.
+    for (final entry in componentsMap.entries) {
+      final id = entry.key;
+      final component = entry.value;
+      final type = component['component']?.toString() ??
+          component['type']?.toString() ??
+          '';
+      final schema = kBasicV1ComponentSchemas[type];
+
+      if (schema == null) {
+        // Custom components registered at runtime are allowed; unknown types
+        // become validation errors so the model can correct them.
+        if (A2UIComponentRegistry.instance.getBuilder(type) == null) {
+          schemaErrors.add(JsonSchemaError(
+            path: '/components/$id/component',
+            message: 'Unknown component type "$type".',
+            value: type,
+            keyword: 'enum',
+          ));
+        }
+        continue;
+      }
+
+      final result = JsonSchemaValidator.validate(
+        _componentProperties(component),
+        schema,
+        rootPath: '/components/$id',
+      );
+      schemaErrors.addAll(result.errors);
+    }
+
+    // Every referenced child must exist on the surface.
+    for (final entry in componentsMap.entries) {
+      final id = entry.key;
+      for (final reference in _referencedComponentIds(entry.value)) {
+        if (!componentsMap.containsKey(reference)) {
+          schemaErrors.add(JsonSchemaError(
+            path: '/components/$id',
+            message: 'References missing component "$reference".',
+            value: reference,
+            keyword: 'reference',
+          ));
+        }
+      }
+    }
+
     if (schemaErrors.isNotEmpty) {
       final summary = JsonSchemaValidationResult.failure(schemaErrors)
           .formatErrorSummary(contextName: 'send_a2ui');
@@ -279,6 +329,64 @@ class A2UIValidator {
       dataModel: Map.unmodifiable(dataModel),
       rootComponentId: rootId,
     );
+  }
+
+  /// Merges nested `properties` with top-level component fields.
+  ///
+  /// Mirrors the renderer's property resolution so schema validation sees the
+  /// same shape that will be built into widgets.
+  static Map<String, dynamic> _componentProperties(
+    Map<String, dynamic> component,
+  ) {
+    final properties = <String, dynamic>{};
+    if (component['properties'] is Map) {
+      properties.addAll(
+        Map<String, dynamic>.from(component['properties'] as Map),
+      );
+    }
+    const metadataKeys = {'id', 'component', 'type', 'properties'};
+    for (final entry in component.entries) {
+      if (!metadataKeys.contains(entry.key)) {
+        properties[entry.key] = entry.value;
+      }
+    }
+    return properties;
+  }
+
+  /// Collects component IDs referenced by a component's properties.
+  static Iterable<String> _referencedComponentIds(
+    Map<String, dynamic> component,
+  ) {
+    final properties = _componentProperties(component);
+    final references = <String>{};
+
+    void addValue(dynamic value) {
+      if (value is String && value.trim().isNotEmpty) {
+        references.add(value.trim());
+      }
+    }
+
+    addValue(properties['child']);
+    addValue(properties['content']);
+    addValue(properties['trigger']);
+
+    final children = properties['children'];
+    if (children is List) {
+      for (final child in children) {
+        addValue(child);
+      }
+    } else if (children is Map) {
+      addValue(children['componentId']);
+    }
+
+    final tabs = properties['tabs'];
+    if (tabs is List) {
+      for (final tab in tabs) {
+        if (tab is Map) addValue(tab['child']);
+      }
+    }
+
+    return references;
   }
 
   /// Extracts components from either a [List] or a [Map] (keyed by ID).

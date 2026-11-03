@@ -49,6 +49,14 @@ void main() {
       expect(responseCanonical.data, contains('A2UI Catalog: basic/v1'));
     });
 
+    test('load_a2ui_catalog defaults to basic/v1 when catalog is omitted',
+        () async {
+      final response = await a2ui.executeCommand('load_a2ui_catalog', {});
+
+      expect(response.isSuccess, isTrue);
+      expect(response.data, contains('A2UI Catalog: basic/v1'));
+    });
+
     test('A2UICatalogRegistry supports dynamic custom catalog registration', () async {
       A2UICatalogRegistry.instance.register(CustomTestCatalog());
 
