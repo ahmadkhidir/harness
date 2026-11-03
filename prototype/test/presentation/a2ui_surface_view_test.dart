@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:harness/modules/a2ui/widgets/a2ui_audio_player.dart';
+import 'package:harness/modules/a2ui/widgets/a2ui_video_player.dart';
 import 'package:harness/modules/a2ui/widgets/a2ui_component_registry.dart';
 import 'package:harness/modules/a2ui/widgets/a2ui_surface_view.dart';
 
@@ -394,6 +396,57 @@ void main() {
       final scrollView = tester.widget<SingleChildScrollView>(find.byType(SingleChildScrollView));
       expect(scrollView.scrollDirection, equals(Axis.horizontal));
       expect(find.textContaining('Item 1'), findsOneWidget);
+    });
+
+    testWidgets('renders AudioPlayer component with title, playback controls and timeline slider', (tester) async {
+      final audioPayload = {
+        'createSurface': {
+          'surfaceId': 'audio_surface',
+          'components': [
+            {
+              'id': 'root',
+              'component': 'AudioPlayer',
+              'url': 'https://example.com/audio/sample.mp3',
+              'title': 'Podcast Episode 1',
+              'autoPlay': false,
+            },
+          ],
+        },
+      };
+
+      await tester.pumpWidget(buildTestWidget(payload: audioPayload));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(A2UIAudioPlayer), findsOneWidget);
+      expect(find.text('Podcast Episode 1'), findsOneWidget);
+      expect(find.byKey(const Key('audio_play_pause_button')), findsOneWidget);
+      expect(find.byType(Slider), findsOneWidget);
+    });
+
+    testWidgets('renders Video component with preview fallback or player controls', (tester) async {
+      final videoPayload = {
+        'createSurface': {
+          'surfaceId': 'video_surface',
+          'components': [
+            {
+              'id': 'root',
+              'component': 'Video',
+              'url': 'https://example.com/video/stream.mp4',
+              'autoPlay': false,
+              'controls': true,
+            },
+          ],
+        },
+      };
+
+      await tester.pumpWidget(buildTestWidget(payload: videoPayload));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(A2UIVideoPlayer), findsOneWidget);
+      // In headless unit tests without video codecs, the component gracefully renders its fallback or player UI
+      final hasFallback = find.text('Video Preview').evaluate().isNotEmpty;
+      final hasPlayer = find.byType(AspectRatio).evaluate().isNotEmpty;
+      expect(hasFallback || hasPlayer, isTrue);
     });
   });
 }

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../catalogs/basic_v1_catalog.dart';
+import 'a2ui_audio_player.dart';
+import 'a2ui_video_player.dart';
 
 /// Context provided to an [A2UIComponentBuilder] when instantiating a Flutter widget.
 class A2UIComponentContext {
@@ -394,75 +396,32 @@ class A2UIComponentRegistry {
 
   // --- 9. Video ---
   static Widget _buildVideo(BuildContext context, A2UIComponentContext ctx) {
-    final theme = Theme.of(context);
     final rawUrl = ctx.properties['url'];
     final resolvedUrl = ctx.resolveBinding(rawUrl)?.toString() ?? '';
+    final autoPlay = ctx.properties['autoPlay'] == true;
+    final controls = ctx.properties['controls'] != false;
+    final aspectRatio = (ctx.properties['aspectRatio'] as num?)?.toDouble();
 
-    return Container(
-      height: 160,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Center(
-            child: Icon(
-              Icons.play_circle_filled,
-              size: 48,
-              color: theme.colorScheme.primary,
-            ),
-          ),
-          Positioned(
-            bottom: 8,
-            left: 12,
-            right: 12,
-            child: Text(
-              resolvedUrl.isNotEmpty ? resolvedUrl : 'Video Player',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
+    return A2UIVideoPlayer(
+      url: resolvedUrl,
+      autoPlay: autoPlay,
+      controls: controls,
+      aspectRatio: aspectRatio,
     );
   }
 
   // --- 10. AudioPlayer ---
   static Widget _buildAudioPlayer(BuildContext context, A2UIComponentContext ctx) {
-    final theme = Theme.of(context);
-    final title = ctx.properties['title']?.toString() ?? 'Audio Player';
+    final rawUrl = ctx.properties['url'];
+    final resolvedUrl = ctx.resolveBinding(rawUrl)?.toString() ?? '';
+    final rawTitle = ctx.properties['title'];
+    final resolvedTitle = ctx.resolveBinding(rawTitle)?.toString() ?? 'Audio Track';
+    final autoPlay = ctx.properties['autoPlay'] == true;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.audiotrack, color: theme.colorScheme.primary),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              title,
-              style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.play_arrow),
-            onPressed: () {
-              ctx.onAction?.call('play_audio', ctx.dataModel);
-            },
-          ),
-        ],
-      ),
+    return A2UIAudioPlayer(
+      url: resolvedUrl,
+      title: resolvedTitle,
+      autoPlay: autoPlay,
     );
   }
 
