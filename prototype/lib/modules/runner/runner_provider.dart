@@ -28,6 +28,20 @@ class ScriptExecutionResult {
       };
 }
 
+/// Failure raised by an external runner bridge.
+class RunnerException implements Exception {
+  /// Human- and model-readable failure description.
+  final String message;
+
+  /// HTTP status code when the failure originated from a runner response.
+  final int? statusCode;
+
+  const RunnerException(this.message, {this.statusCode});
+
+  @override
+  String toString() => message;
+}
+
 /// Abstract contract for offloading arbitrary code execution to an isolated external environment.
 ///
 /// Implements App Store Review Guideline 2.5.2 compliance by ensuring no dynamic
