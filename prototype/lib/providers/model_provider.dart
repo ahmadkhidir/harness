@@ -91,6 +91,27 @@ class ModelMemoryExceededException extends ModelProviderException {
   });
 }
 
+/// Removes inline reasoning wrappers emitted inside the model's text stream.
+///
+/// Most cloud APIs separate chain-of-thought into dedicated fields, but
+/// OpenAI-compatible servers and on-device SLMs (Qwen, DeepSeek-R1, ...) often
+/// embed it inside `think`-style XML blocks in the content.
+/// Stripping it here keeps zero-thinking-leakage guarantees provider-agnostic.
+String stripInlineReasoning(String text) {
+  var cleaned = text;
+  // Closed reasoning blocks.
+  cleaned = cleaned.replaceAll(
+    RegExp(r'<think(?:ing)?>[\s\S]*?</think(?:ing)?>', caseSensitive: false),
+    '',
+  );
+  // A truncated generation may leave the block open; drop everything after it.
+  cleaned = cleaned.replaceAll(
+    RegExp(r'<think(?:ing)?>[\s\S]*$', caseSensitive: false),
+    '',
+  );
+  return cleaned.trim();
+}
+
 /// Abstract contract for LLM inference providers in Harness.
 ///
 /// Implements the pluggable provider layer specified in `docs/Harness/architecture.md`

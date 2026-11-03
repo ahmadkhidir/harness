@@ -140,6 +140,92 @@ void main() {
       expect(response.systemCalls.first.command, equals('get_battery'));
     });
 
+    test('GeminiModelProvider skips thought parts and concatenates text parts', () async {
+      final config = ProviderConfig(
+        id: 'gemini',
+        providerType: 'gemini',
+        displayName: 'Gemini',
+        modelName: 'gemini-2.5-flash',
+      );
+
+      final client = MockHttpClient((request) async {
+        final responsePayload = {
+          'candidates': [
+            {
+              'content': {
+                'parts': [
+                  {'text': 'internal reasoning', 'thought': true},
+                  {'text': 'Hello! '},
+                  {'text': 'How can I help?'},
+                ],
+              },
+            }
+          ],
+        };
+        return http.Response(json.encode(responsePayload), 200,
+            headers: {'content-type': 'application/json'});
+      });
+
+      final provider = GeminiModelProvider(config: config, client: client);
+      final text = await provider.generate(
+        messages: [const ModelMessage(role: 'user', content: 'Hello')],
+        apiKey: 'test_gemini_key',
+      );
+
+      expect(text, equals('Hello! How can I help?'));
+    });
+
+    test('OpenAICompatibleProvider strips inline reasoning tags', () async {
+      final config = ProviderConfig(
+        id: 'ollama_reasoner',
+        providerType: 'openai_compatible',
+        displayName: 'Local Reasoner',
+        modelName: 'deepseek-r1:7b',
+        customEndpointUrl: 'http://localhost:11434/v1',
+      );
+
+      final client = MockHttpClient((request) async {
+        final responsePayload = {
+          'choices': [
+            {
+              'message': {
+                'role': 'assistant',
+                'content': '<think>pondering the request</think>Final answer',
+              },
+            }
+          ]
+        };
+        return http.Response(json.encode(responsePayload), 200,
+            headers: {'content-type': 'application/json'});
+      });
+
+      final provider = OpenAICompatibleProvider(config: config, client: client);
+      final text = await provider.generate(
+        messages: [const ModelMessage(role: 'user', content: 'Hi')],
+      );
+
+      expect(text, equals('Final answer'));
+    });
+
+    test('LocalDeviceModelProvider strips inline reasoning from on-device output', () async {
+      final engine = MockOnDeviceEngine(
+        onGenerate: (prompt) async => '<think>internal reasoning</think>Hi from the device',
+      );
+      final config = ProviderConfig(
+        id: 'local_slm',
+        providerType: 'local_device',
+        displayName: 'Local SLM',
+        modelName: 'local-slm-1b',
+      );
+
+      final provider = LocalDeviceModelProvider(config: config, engine: engine);
+      final text = await provider.generate(
+        messages: [const ModelMessage(role: 'user', content: 'Hi')],
+      );
+
+      expect(text, equals('Hi from the device'));
+    });
+
     test('GeminiModelProvider throws AuthenticationException on 401/403', () async {
       final config = ProviderConfig(
         id: 'gemini',

@@ -67,8 +67,16 @@ class ClaudeModelProvider extends ModelProvider {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final data = json.decode(response.body);
       final content = data['content'] as List?;
-      if (content != null && content.isNotEmpty) {
-        return content[0]['text'] as String? ?? '';
+      if (content != null) {
+        final buffer = StringBuffer();
+        for (final block in content) {
+          // Extended-thinking models return separate `thinking` blocks; skip
+          // anything that is not an explicit text block.
+          if (block is! Map || block['type'] != 'text') continue;
+          final text = block['text'] as String?;
+          if (text != null) buffer.write(text);
+        }
+        return stripInlineReasoning(buffer.toString());
       }
       return '';
     } else {

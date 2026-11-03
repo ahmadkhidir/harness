@@ -514,12 +514,14 @@ class LocalDeviceModelProvider extends ModelProvider {
       tools: tools,
     );
 
-    return await _resolveEngine(modelPath: modelPath).generate(
+    final raw = await _resolveEngine(modelPath: modelPath).generate(
       prompt,
       temperature: config.temperature,
       maxTokens: config.maxOutputTokens,
       modelPath: modelPath,
     );
+    // On-device models such as Qwen or DeepSeek-R1 inline their reasoning.
+    return stripInlineReasoning(raw);
   }
 
   @override

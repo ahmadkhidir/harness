@@ -76,8 +76,16 @@ class GeminiModelProvider extends ModelProvider {
       final candidates = data['candidates'] as List?;
       if (candidates != null && candidates.isNotEmpty) {
         final parts = candidates[0]['content']['parts'] as List?;
-        if (parts != null && parts.isNotEmpty) {
-          return parts[0]['text'] as String? ?? '';
+        if (parts != null) {
+          final buffer = StringBuffer();
+          for (final part in parts) {
+            if (part is! Map) continue;
+            // Thinking models flag chain-of-thought parts; never parse or show them.
+            if (part['thought'] == true) continue;
+            final text = part['text'] as String?;
+            if (text != null) buffer.write(text);
+          }
+          return stripInlineReasoning(buffer.toString());
         }
       }
       return '';

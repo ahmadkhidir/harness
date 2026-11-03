@@ -64,7 +64,8 @@ class OpenAICompatibleProvider extends ModelProvider {
       final data = json.decode(response.body);
       final choices = data['choices'] as List?;
       if (choices != null && choices.isNotEmpty) {
-        return choices[0]['message']['content'] as String? ?? '';
+        final content = choices[0]['message']['content'] as String? ?? '';
+        return stripInlineReasoning(content);
       }
       return '';
     } else {
