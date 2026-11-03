@@ -193,4 +193,50 @@ void main() {
       switcherBloc.close();
     },
   );
+
+  testWidgets(
+    'SettingsScreen exposes external bridge configuration with provider-specific keys',
+    (tester) async {
+      final switcherBloc = ModelSwitcherBloc(
+        database: db,
+        keyStorage: keyStorage,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: BlocProvider<ModelSwitcherBloc>.value(
+            value: switcherBloc,
+            child: const SettingsScreen(),
+          ),
+        ),
+      );
+
+      for (int i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        if (find.byType(CircularProgressIndicator).evaluate().isEmpty) break;
+      }
+
+      await tester.scrollUntilVisible(
+        find.text('External Bridges'),
+        400,
+        scrollable: find.byType(Scrollable).first,
+      );
+
+      expect(find.text('External Bridges'), findsOneWidget);
+      expect(find.text('DuckDuckGo (no API key)'), findsOneWidget);
+      expect(find.text('Runner Endpoint'), findsOneWidget);
+      expect(find.text('Tavily API Key'), findsNothing);
+
+      await tester.tap(find.text('DuckDuckGo (no API key)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Tavily').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Tavily API Key'), findsOneWidget);
+      expect(find.text('Brave API Key'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      switcherBloc.close();
+    },
+  );
 }

@@ -9,6 +9,7 @@ import '../../core/models/provider_config.dart';
 import '../../core/utils/file_system_manager.dart';
 import '../../core/utils/storage_permission_service.dart';
 import '../../data/database/app_database.dart';
+import '../../data/secure_storage/key_storage_service.dart';
 import '../../data/services/model_download_service.dart';
 import '../bloc/model_switcher_bloc.dart';
 import '../bloc/model_switcher_event.dart';
@@ -79,11 +80,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _currentRootPath;
   Map<String, String> _externalMounts = {};
 
+  String _searchProviderId = 'duckduckgo';
+  final TextEditingController _tavilyKeyController = TextEditingController();
+  final TextEditingController _braveKeyController = TextEditingController();
+  final TextEditingController _runnerEndpointController =
+      TextEditingController();
+  bool _obscureBridgeKey = true;
+  bool _hasTavilyKey = false;
+  bool _hasBraveKey = false;
+
   @override
   void initState() {
     super.initState();
     context.read<ModelSwitcherBloc>().add(const LoadProviderConfigsEvent());
     _loadFilesystemSettings();
+    _loadBridgeSettings();
+  }
+
+  /// Loads the persisted external bridge configuration (FEAT-008).
+  Future<void> _loadBridgeSettings() async {
+    final db = AppDatabase();
+    final keyStorage = KeyStorageService();
+
+    var providerId = 'duckduckgo';
+    String? endpoint;
+    var hasTavily = false;
+    var hasBrave = false;
+
+    try {
+      providerId = await db.getSearchProviderId();
+      endpoint = await db.getRunnerEndpoint();
+      hasTavily = await keyStorage.hasApiKey('tavily');
+      hasBrave = await keyStorage.hasApiKey('brave');
+    } catch (_) {
+      // Widget tests and unsupported hosts fall back to defaults.
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _searchProviderId = providerId;
+      _runnerEndpointController.text = endpoint ?? '';
+      _hasTavilyKey = hasTavily;
+      _hasBraveKey = hasBrave;
+    });
+  }
+
+  /// Persists the external bridge configuration and any entered search keys.
+  Future<void> _saveBridgeSettings() async {
+    final db = AppDatabase();
+    final keyStorage = KeyStorageService();
+
+    try {
+      await db.setSearchProviderId(_searchProviderId);
+      await db.setRunnerEndpoint(_runnerEndpointController.text);
+
+      final tavilyKey = _tavilyKeyController.text.trim();
+      if (tavilyKey.isNotEmpty) {
+        await keyStorage.saveApiKey('tavily', tavilyKey);
+        _tavilyKeyController.clear();
+      }
+
+      final braveKey = _braveKeyController.text.trim();
+      if (braveKey.isNotEmpty) {
+        await keyStorage.saveApiKey('brave', braveKey);
+        _braveKeyController.clear();
+      }
+
+      await _loadBridgeSettings();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('External bridge settings saved.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not save bridge settings: $e'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
   }
 
   void _loadFilesystemSettings() async {
@@ -252,6 +328,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _modelController.dispose();
     _keyController.dispose();
     _urlController.dispose();
+    _tavilyKeyController.dispose();
+    _braveKeyController.dispose();
+    _runnerEndpointController.dispose();
     super.dispose();
   }
 
@@ -498,6 +577,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 16),
                 _buildFilesystemCard(theme),
+                const SizedBox(height: 16),
+                _buildExternalBridgesCard(theme),
               ],
             ),
           );
@@ -1360,6 +1441,167 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  /// External Bridges configuration card (FEAT-008).
+  ///
+  /// Configures the search provider, search credentials, and external runner
+  /// endpoint used by the `web_search`, `web_fetch`, and `execute_script`
+  /// commands.
+  Widget _buildExternalBridgesCard(ThemeData theme) {
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'External Bridges',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.refresh, size: 20),
+                  onPressed: _loadBridgeSettings,
+                  tooltip: 'Refresh',
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Web search and script execution are delegated to external services.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+            const Divider(height: 24),
+            Text(
+              'Web Search',
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              key: ValueKey('bridge_search_$_searchProviderId'),
+              decoration: const InputDecoration(
+                labelText: 'Search Provider',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.travel_explore),
+              ),
+              initialValue: _searchProviderId,
+              items: const [
+                DropdownMenuItem(
+                  value: 'duckduckgo',
+                  child: Text('DuckDuckGo (no API key)'),
+                ),
+                DropdownMenuItem(value: 'tavily', child: Text('Tavily')),
+                DropdownMenuItem(value: 'brave', child: Text('Brave')),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() => _searchProviderId = value);
+                }
+              },
+            ),
+            if (_searchProviderId == 'tavily') ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _tavilyKeyController,
+                obscureText: _obscureBridgeKey,
+                decoration: InputDecoration(
+                  labelText: 'Tavily API Key',
+                  hintText: _hasTavilyKey ? '••••••••••••••••' : 'tvly-...',
+                  helperText: _hasTavilyKey
+                      ? '✓ Tavily key is saved in the encrypted keystore'
+                      : 'A Tavily key is required for this provider',
+                  helperStyle: TextStyle(
+                    color: _hasTavilyKey
+                        ? Colors.green.shade700
+                        : Colors.orange.shade800,
+                  ),
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.key),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscureBridgeKey
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                    ),
+                    onPressed: () =>
+                        setState(() => _obscureBridgeKey = !_obscureBridgeKey),
+                  ),
+                ),
+              ),
+            ],
+            if (_searchProviderId == 'brave') ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _braveKeyController,
+                obscureText: _obscureBridgeKey,
+                decoration: InputDecoration(
+                  labelText: 'Brave API Key',
+                  hintText: _hasBraveKey ? '••••••••••••••••' : 'BSA...',
+                  helperText: _hasBraveKey
+                      ? '✓ Brave key is saved in the encrypted keystore'
+                      : 'A Brave subscription token is required for this provider',
+                  helperStyle: TextStyle(
+                    color: _hasBraveKey
+                        ? Colors.green.shade700
+                        : Colors.orange.shade800,
+                  ),
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.key),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscureBridgeKey
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                    ),
+                    onPressed: () =>
+                        setState(() => _obscureBridgeKey = !_obscureBridgeKey),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 20),
+            Text(
+              'External Runner',
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _runnerEndpointController,
+              decoration: const InputDecoration(
+                labelText: 'Runner Endpoint',
+                hintText: 'https://runner.example.com',
+                helperText:
+                    'Base URL for external script execution (POST /execute). Leave empty to disable.',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.dns_outlined),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                icon: const Icon(Icons.save_outlined),
+                label: const Text('Save External Bridges'),
+                onPressed: _saveBridgeSettings,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

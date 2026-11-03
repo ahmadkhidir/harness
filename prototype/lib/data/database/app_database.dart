@@ -24,6 +24,15 @@ class AppDatabase {
   static const String _rootPathKey = 'harness_root_path';
   static const String _externalMountsKey = 'harness_external_mounts';
   static const String _activeSessionIdKey = 'harness_active_session_id';
+  static const String _searchProviderKey = 'harness_bridge_search_provider';
+  static const String _runnerEndpointKey = 'harness_bridge_runner_endpoint';
+
+  /// Search provider identifiers accepted by the external web bridge.
+  static const Set<String> supportedSearchProviders = {
+    'duckduckgo',
+    'tavily',
+    'brave',
+  };
 
   static final List<ProviderConfig> _defaultConfigs = [
     ProviderConfig(
@@ -132,6 +141,60 @@ class AppDatabase {
   /// Persists the active session ID.
   Future<void> setActiveSessionId(String sessionId) async {
     await _write(_activeSessionIdKey, sessionId);
+  }
+
+  /// Retrieves the active web search provider identifier.
+  ///
+  /// Defaults to `duckduckgo`, which requires no API key, and ignores any
+  /// persisted value that is no longer supported.
+  Future<String> getSearchProviderId() async {
+    final value = await _read(_searchProviderKey);
+    if (value == null || !supportedSearchProviders.contains(value)) {
+      return 'duckduckgo';
+    }
+    return value;
+  }
+
+  /// Persists the selected web search provider identifier.
+  ///
+  /// Throws [ArgumentError] when [id] is not a supported provider.
+  Future<void> setSearchProviderId(String id) async {
+    if (!supportedSearchProviders.contains(id)) {
+      throw ArgumentError(
+        'Unsupported search provider "$id". Expected one of $supportedSearchProviders.',
+      );
+    }
+    await _write(_searchProviderKey, id);
+  }
+
+  /// Retrieves the configured external runner endpoint, or null when unset.
+  Future<String?> getRunnerEndpoint() async {
+    final value = await _read(_runnerEndpointKey);
+    final trimmed = value?.trim();
+    return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+  }
+
+  /// Persists the external runner endpoint; an empty value clears it.
+  ///
+  /// Throws [ArgumentError] when a non-empty value is not an absolute HTTP(S) URL.
+  Future<void> setRunnerEndpoint(String? endpoint) async {
+    final trimmed = endpoint?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      await _write(_runnerEndpointKey, '');
+      return;
+    }
+
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null ||
+        !uri.hasScheme ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.host.isEmpty) {
+      throw ArgumentError(
+        'Runner endpoint must be an absolute http(s) URL, got "$trimmed".',
+      );
+    }
+
+    await _write(_runnerEndpointKey, trimmed);
   }
 
   /// Retrieves all configured model providers.

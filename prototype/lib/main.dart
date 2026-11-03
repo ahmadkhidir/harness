@@ -11,12 +11,15 @@ import 'core/routes/app_routes.dart';
 import 'core/utils/file_system_manager.dart';
 import 'data/database/app_database.dart';
 import 'data/secure_storage/key_storage_service.dart';
+import 'data/services/bridge_settings_service.dart';
 import 'data/services/session_service.dart';
 import 'modules/a2ui/a2ui_module.dart';
 import 'modules/platform_actions/a2ui_event_router.dart';
 import 'modules/platform_actions/platform_actions_module.dart';
+import 'modules/runner/runner_module.dart';
 import 'modules/skills/skills_module.dart';
 import 'modules/storage/storage_module.dart';
+import 'modules/web/web_module.dart';
 import 'presentation/bloc/harness_session_bloc.dart';
 import 'presentation/bloc/model_switcher_bloc.dart';
 import 'presentation/bloc/model_switcher_event.dart';
@@ -64,6 +67,17 @@ void main() async {
     router.registerModule(StorageModule());
     router.registerModule(A2UIModule());
     router.registerModule(PlatformActionsModule());
+    final bridgeSettings = BridgeSettingsService(
+      database: database,
+      keyStorage: keyStorage,
+    );
+    router.registerModule(WebModule(
+      searchProviderFactory: bridgeSettings.createSearchProvider,
+      fetchProvider: bridgeSettings.createFetchProvider(),
+    ));
+    router.registerModule(RunnerModule(
+      runnerProviderFactory: bridgeSettings.createRunnerProvider,
+    ));
     final contextBuilder = ContextBuilder();
     engine = HarnessEngine(
       router: router,
@@ -78,6 +92,17 @@ void main() async {
     router.registerModule(StorageModule());
     router.registerModule(A2UIModule());
     router.registerModule(PlatformActionsModule());
+    final bridgeSettings = BridgeSettingsService(
+      database: database,
+      keyStorage: keyStorage,
+    );
+    router.registerModule(WebModule(
+      searchProviderFactory: bridgeSettings.createSearchProvider,
+      fetchProvider: bridgeSettings.createFetchProvider(),
+    ));
+    router.registerModule(RunnerModule(
+      runnerProviderFactory: bridgeSettings.createRunnerProvider,
+    ));
     final contextBuilder = ContextBuilder();
     final modelProvider = ModelProviderFactory.create(
       config: ProviderConfig(
@@ -144,6 +169,17 @@ class _HarnessAppState extends State<HarnessApp> {
       router.registerModule(StorageModule());
       router.registerModule(A2UIModule());
       router.registerModule(PlatformActionsModule());
+      final bridgeSettings = BridgeSettingsService(
+        database: _database,
+        keyStorage: _keyStorage,
+      );
+      router.registerModule(WebModule(
+        searchProviderFactory: bridgeSettings.createSearchProvider,
+        fetchProvider: bridgeSettings.createFetchProvider(),
+      ));
+      router.registerModule(RunnerModule(
+        runnerProviderFactory: bridgeSettings.createRunnerProvider,
+      ));
       final contextBuilder = ContextBuilder();
       final defaultProvider = ModelProviderFactory.create(
         config: ProviderConfig(
