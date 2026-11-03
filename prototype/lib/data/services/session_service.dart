@@ -260,6 +260,41 @@ class SessionService {
     fs.activeSessionId = sessionId;
   }
 
+  /// Appends a user line to `context.txt` without creating a chat turn.
+  ///
+  /// Used for interface selections that should reach the model but stay out of
+  /// `turns.json` and the rendered conversation. Session metadata (context size
+  /// and updated time) is refreshed when the session already exists.
+  Future<void> appendUserContextLine(String sessionId, String text) async {
+    final sessionDir = fs.sessionDir(sessionId);
+    if (!sessionDir.existsSync()) {
+      sessionDir.createSync(recursive: true);
+    }
+
+    final contextFile = fs.sessionContextFile(sessionId);
+    contextFile.writeAsStringSync(
+      ContextLine(type: ContextLineType.user, content: text).format(),
+      mode: FileMode.append,
+      flush: true,
+    );
+
+    final session = await getSession(sessionId);
+    if (session != null) {
+      final turns = await loadTurns(sessionId);
+      final updatedSession = session.copyWith(
+        updatedAt: DateTime.now().toUtc(),
+        contextSizeBytes:
+            contextFile.existsSync() ? contextFile.lengthSync() : 0,
+      );
+      _atomicWriteJson(fs.sessionTurnsFile(sessionId), {
+        'session': updatedSession.toJson(),
+        'turns': turns.map((turn) => turn.toJson()).toList(),
+      });
+    }
+
+    fs.activeSessionId = sessionId;
+  }
+
   /// Renames an existing session, updating its title in `turns.json`.
   Future<Session> renameSession(String sessionId, String newTitle) async {
     final turnsFile = fs.sessionTurnsFile(sessionId);

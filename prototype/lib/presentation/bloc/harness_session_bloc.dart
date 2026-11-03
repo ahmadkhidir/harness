@@ -90,33 +90,46 @@ class HarnessSessionBloc
 
   /// Starts an engine turn for [prompt].
   ///
-  /// Shared by direct user submissions and conversational A2UI actions so both
-  /// paths produce an identical persisted user turn and execution stream.
+  /// Shared by direct user submissions and conversational A2UI actions. Direct
+  /// prompts are persisted as visible user turns; interface selections pass
+  /// [visibleInChat] as false so they reach the model and `context.txt` without
+  /// appearing in `turns.json` or the rendered conversation.
   Future<void> _startPrompt(
     String prompt,
     String? explicitApiKey,
-    Emitter<HarnessSessionState> emit,
-  ) async {
+    Emitter<HarnessSessionState> emit, {
+    bool visibleInChat = true,
+  }) async {
     final currentSessionId =
         state.sessionId ?? 'sess_${DateTime.now().millisecondsSinceEpoch}';
 
-    // Optimistically record user prompt turn in the chat history
-    final userTurn = Turn(
-      id: 'turn_user_${DateTime.now().millisecondsSinceEpoch}',
-      sessionId: currentSessionId,
-      timestamp: DateTime.now().toUtc(),
-      sender: 'user',
-      contentType: 'text',
-      text: prompt,
-    );
-
-    // Dual-write user prompt to disk
-    if (sessionService != null) {
-      await sessionService!.appendTurn(currentSessionId, userTurn);
-    }
-
     final priorTurns = List<Turn>.from(state.turns);
-    final updatedTurns = List<Turn>.from(priorTurns)..add(userTurn);
+    List<Turn> updatedTurns;
+
+    if (visibleInChat) {
+      // Optimistically record user prompt turn in the chat history.
+      final userTurn = Turn(
+        id: 'turn_user_${DateTime.now().millisecondsSinceEpoch}',
+        sessionId: currentSessionId,
+        timestamp: DateTime.now().toUtc(),
+        sender: 'user',
+        contentType: 'text',
+        text: prompt,
+      );
+
+      // Dual-write visible user prompts to disk.
+      if (sessionService != null) {
+        await sessionService!.appendTurn(currentSessionId, userTurn);
+      }
+
+      updatedTurns = List<Turn>.from(priorTurns)..add(userTurn);
+    } else {
+      // Interface selections stay in the context transcript only.
+      if (sessionService != null) {
+        await sessionService!.appendUserContextLine(currentSessionId, prompt);
+      }
+      updatedTurns = priorTurns;
+    }
 
     emit(HarnessTurnExecuting(
       sessionId: currentSessionId,
@@ -160,7 +173,7 @@ class HarnessSessionBloc
 
     switch (route.kind) {
       case A2UIEventKind.conversationTurn:
-        await _startPrompt(route.prompt!, null, emit);
+        await _startPrompt(route.prompt!, null, emit, visibleInChat: false);
         return;
       case A2UIEventKind.platformAction:
         final response = await a2uiEventRouter.executePlatform(route);

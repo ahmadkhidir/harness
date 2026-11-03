@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +8,9 @@ import 'package:harness/core/engine/context_builder.dart';
 import 'package:harness/core/engine/engine_events.dart';
 import 'package:harness/core/engine/harness_engine.dart';
 import 'package:harness/core/models/models.dart';
+import 'package:harness/core/utils/file_system_manager.dart';
+import 'package:harness/data/database/app_database.dart';
+import 'package:harness/data/services/session_service.dart';
 import 'package:harness/modules/platform_actions/a2ui_event_router.dart';
 import 'package:harness/modules/platform_actions/platform_actions_module.dart';
 import 'package:harness/presentation/bloc/harness_session_bloc.dart';
@@ -347,7 +352,7 @@ void main() {
 
         final readyFuture = bloc.stream.firstWhere(
           (state) =>
-              state is HarnessSessionReady && state.turns.length >= 2,
+              state is HarnessSessionReady && state.turns.isNotEmpty,
         );
 
         bloc.add(const HandleA2UIActionEvent(
@@ -357,15 +362,75 @@ void main() {
 
         final ready = await readyFuture as HarnessSessionReady;
 
-        expect(ready.turns.first.sender, equals('user'));
-        expect(ready.turns.first.text, contains('confirm_choice'));
-        expect(ready.turns.first.text, contains('"choice":"window"'));
+        // Interface selections are sent to the model but are not rendered as
+        // user chat turns.
+        expect(ready.turns.any((turn) => turn.sender == 'user'), isFalse);
+        expect(ready.turns.single.sender, equals('agent'));
+        expect(ready.turns.single.text, equals('Window seat confirmed.'));
         expect(provider.prompts, isNotEmpty);
         expect(provider.prompts.last, contains('confirm_choice'));
         expect(provider.prompts.last, contains('"seat":"12A"'));
         // Platform gateway was never invoked for a conversational action.
         expect(gateway.alarms, isEmpty);
         expect(gateway.copiedTexts, isEmpty);
+      },
+    );
+
+    test(
+      'A2UI conversation action is written to context.txt but not turns.json',
+      () async {
+        final tempDir =
+            await Directory.systemTemp.createTemp('feat007_hidden_action_');
+        addTearDown(() async {
+          HarnessFileSystem.instance = null;
+          if (await tempDir.exists()) await tempDir.delete(recursive: true);
+        });
+        final fileSystem = HarnessFileSystem(rootDir: tempDir);
+        fileSystem.ensureBaseDirectoriesSync();
+        final sessionService = SessionService(
+          fileSystem: fileSystem,
+          database: AppDatabase.inMemory(),
+        );
+
+        final provider = _RecordingProvider(responses: const [
+          '<system_call>{"command": "send_message", "parameters": {"text": "Resume tailored."}}</system_call>',
+        ]);
+        final engine = HarnessEngine(
+          router: CommandRouter(),
+          contextBuilder: ContextBuilder(),
+          modelProvider: provider,
+        );
+        final bloc = HarnessSessionBloc(
+          engine: engine,
+          a2uiEventRouter: eventRouter,
+          sessionService: sessionService,
+        );
+        addTearDown(bloc.close);
+
+        final readyFuture = bloc.stream.firstWhere(
+          (state) => state is HarnessSessionReady && state.turns.isNotEmpty,
+        );
+
+        bloc.add(const HandleA2UIActionEvent(
+          action: 'view_tailored_resume',
+          dataModel: {
+            'job': {'title': 'Senior Backend Engineer', 'location': 'Nigeria'},
+          },
+        ));
+
+        final ready = await readyFuture as HarnessSessionReady;
+        final sessionId = ready.sessionId!;
+
+        final context = fileSystem.sessionContextFile(sessionId).readAsStringSync();
+        expect(
+          context,
+          contains('USER: The user selected the option "view_tailored_resume"'),
+        );
+        expect(context, contains('"location":"Nigeria"'));
+
+        final persisted = await sessionService.loadTurns(sessionId);
+        expect(persisted.any((turn) => turn.sender == 'user'), isFalse);
+        expect(persisted.single.sender, 'agent');
       },
     );
 
