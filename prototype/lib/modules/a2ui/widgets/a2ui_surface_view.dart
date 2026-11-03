@@ -20,13 +20,21 @@ class A2UISurfaceView extends StatelessWidget {
     this.onAction,
   });
 
+  /// Caches validation per payload object so widget rebuilds (scrolling,
+  /// parent setState) do not re-run schema validation. Payloads are immutable
+  /// turn data, so identity is a safe key.
+  static final Expando<A2UIValidationResult> _validationCache =
+      Expando<A2UIValidationResult>('a2ui_surface_validation');
+
   @override
   Widget build(BuildContext context) {
-    if (payload == null) {
+    final currentPayload = payload;
+    if (currentPayload == null) {
       return _buildFallback(context, 'No A2UI payload provided.');
     }
 
-    final validation = A2UIValidator.validate(payload);
+    final validation = _validationCache[currentPayload] ??=
+        A2UIValidator.validate(currentPayload);
     if (!validation.isValid) {
       return _buildFallback(context, validation.errorMessage ?? 'Invalid A2UI payload.');
     }
