@@ -294,6 +294,76 @@ void main() {
       expect(text, 'Here is the answer.');
     });
 
+    test('GeminiModelProvider retries malformed function calls with a correction', () async {
+      final config = ProviderConfig(
+        id: 'gemini',
+        providerType: 'gemini',
+        displayName: 'Gemini',
+        modelName: 'gemini-2.0-flash',
+      );
+
+      var calls = 0;
+      final client = MockHttpClient((request) async {
+        calls++;
+        final body =
+            json.decode((request as http.Request).body) as Map<String, dynamic>;
+
+        if (calls == 1) {
+          return http.Response(
+            json.encode({
+              'candidates': [
+                {
+                  'finishReason': 'MALFORMED_FUNCTION_CALL',
+                  'content': {
+                    'parts': [
+                      {'text': ''},
+                      {'text': ''},
+                    ],
+                  },
+                }
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        final contents = body['contents'] as List;
+        final lastMessage = contents.last as Map;
+        final parts = lastMessage['parts'] as List;
+        expect(
+          (parts.last as Map)['text'],
+          contains('Do not use native function calling'),
+        );
+
+        return http.Response(
+          json.encode({
+            'candidates': [
+              {
+                'finishReason': 'STOP',
+                'content': {
+                  'parts': [
+                    {'text': 'Recovered response.'},
+                  ],
+                },
+              }
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      final provider = GeminiModelProvider(config: config, client: client);
+      final text = await provider.generate(
+        messages: [const ModelMessage(role: 'user', content: 'Tailor my resume')],
+        apiKey: 'test_gemini_key',
+      );
+
+      expect(calls, 2);
+      expect(text, 'Recovered response.');
+    });
+
     test('GeminiModelProvider explains blocked requests', () async {
       final config = ProviderConfig(
         id: 'gemini',

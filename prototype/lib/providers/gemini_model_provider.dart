@@ -39,6 +39,28 @@ class GeminiModelProvider extends ModelProvider {
       thinkingBudget: supportsThinking ? thinkingBudget : null,
     );
 
+    // Gemini occasionally attempts native function calling even though Harness
+    // uses a text protocol, ending with MALFORMED_FUNCTION_CALL and no answer.
+    // Retry once with an explicit correction.
+    if (result.text.trim().isEmpty &&
+        result.finishReason == 'MALFORMED_FUNCTION_CALL') {
+      result = await _request(
+        key: key,
+        messages: [
+          ...messages,
+          const ModelMessage(
+            role: 'user',
+            content:
+                'Your previous response was rejected as a malformed function call. '
+                'Do not use native function calling. Reply with plain text or a single '
+                '<system_call> JSON block.',
+          ),
+        ],
+        systemInstruction: systemInstruction,
+        thinkingBudget: supportsThinking ? 0 : null,
+      );
+    }
+
     // Thinking models can spend the whole output budget on reasoning and return
     // no answer. Retry once with reasoning disabled so simple prompts still
     // complete instead of surfacing an empty reply.
@@ -94,6 +116,7 @@ class GeminiModelProvider extends ModelProvider {
       'generationConfig': {
         'temperature': config.temperature,
         'maxOutputTokens': config.maxOutputTokens,
+        'responseMimeType': 'text/plain',
         if (thinkingBudget != null)
           'thinkingConfig': {'thinkingBudget': thinkingBudget},
       },
@@ -174,6 +197,15 @@ class GeminiModelProvider extends ModelProvider {
         provider: 'gemini',
         message:
             'Gemini blocked the request (reason: ${result.blockReason}). Try rewording or switching providers.',
+      );
+    }
+
+    if (result.finishReason == 'MALFORMED_FUNCTION_CALL') {
+      return ModelProviderException(
+        provider: 'gemini',
+        message:
+            'Gemini produced a malformed function call instead of a reply. '
+            'Retry the action, rephrase the request, or switch providers.',
       );
     }
 
