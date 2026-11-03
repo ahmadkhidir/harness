@@ -13,6 +13,8 @@ import 'data/database/app_database.dart';
 import 'data/secure_storage/key_storage_service.dart';
 import 'data/services/session_service.dart';
 import 'modules/a2ui/a2ui_module.dart';
+import 'modules/platform_actions/a2ui_event_router.dart';
+import 'modules/platform_actions/platform_actions_module.dart';
 import 'modules/skills/skills_module.dart';
 import 'modules/storage/storage_module.dart';
 import 'presentation/bloc/harness_session_bloc.dart';
@@ -61,6 +63,7 @@ void main() async {
     router.registerModule(SkillsModule());
     router.registerModule(StorageModule());
     router.registerModule(A2UIModule());
+    router.registerModule(PlatformActionsModule());
     final contextBuilder = ContextBuilder();
     engine = HarnessEngine(
       router: router,
@@ -74,6 +77,7 @@ void main() async {
     router.registerModule(SkillsModule());
     router.registerModule(StorageModule());
     router.registerModule(A2UIModule());
+    router.registerModule(PlatformActionsModule());
     final contextBuilder = ContextBuilder();
     final modelProvider = ModelProviderFactory.create(
       config: ProviderConfig(
@@ -124,6 +128,7 @@ class _HarnessAppState extends State<HarnessApp> {
   late final HarnessEngine _engine;
   late final ModelSwitcherBloc _modelSwitcherBloc;
   late final HarnessSessionBloc _harnessSessionBloc;
+  late final A2UIEventRouter _a2uiEventRouter;
 
   @override
   void initState() {
@@ -138,6 +143,7 @@ class _HarnessAppState extends State<HarnessApp> {
       router.registerModule(SkillsModule());
       router.registerModule(StorageModule());
       router.registerModule(A2UIModule());
+      router.registerModule(PlatformActionsModule());
       final contextBuilder = ContextBuilder();
       final defaultProvider = ModelProviderFactory.create(
         config: ProviderConfig(
@@ -161,6 +167,10 @@ class _HarnessAppState extends State<HarnessApp> {
       engine: _engine,
     )..add(const LoadProviderConfigsEvent());
 
+    _a2uiEventRouter = A2UIEventRouter(
+      platformActions: PlatformActionsModule(),
+    );
+
     _harnessSessionBloc = HarnessSessionBloc(
       engine: _engine,
       keyStorage: _keyStorage,
@@ -168,6 +178,7 @@ class _HarnessAppState extends State<HarnessApp> {
         database: _database,
         fileSystem: HarnessFileSystem.instance,
       ),
+      a2uiEventRouter: _a2uiEventRouter,
     );
   }
 

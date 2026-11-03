@@ -15,9 +15,17 @@ import 'tool_calls_bottom_sheet.dart';
 class MessageBubble extends StatelessWidget {
   final Turn turn;
 
+  /// Optional callback invoked when an embedded A2UI component fires an action.
+  ///
+  /// The chat screen forwards this to [HandleA2UIActionEvent] so platform
+  /// actions execute directly and conversational actions become new turns.
+  final void Function(String action, Map<String, dynamic> dataModel)?
+      onA2UIAction;
+
   const MessageBubble({
     super.key,
     required this.turn,
+    this.onA2UIAction,
   });
 
   bool get isUser => turn.sender == 'user';
@@ -168,7 +176,10 @@ class MessageBubble extends StatelessWidget {
             ),
             const SizedBox(height: 8),
           ],
-          A2UISurfaceView(payload: turn.a2uiPayload),
+          A2UISurfaceView(
+            payload: turn.a2uiPayload,
+            onAction: onA2UIAction,
+          ),
         ],
       );
     }

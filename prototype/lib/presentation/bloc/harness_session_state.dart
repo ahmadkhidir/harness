@@ -34,6 +34,33 @@ class HarnessSessionReady extends HarnessSessionState {
   });
 }
 
+/// Result of a directly executed A2UI platform action.
+///
+/// Platform actions do not create an LLM turn, so the chat screen surfaces this
+/// transient result as a snackbar while leaving the conversation intact.
+class HarnessA2UIActionResolved extends HarnessSessionState {
+  /// Human-readable confirmation or failure message.
+  final String message;
+
+  /// True when the platform action failed (including denied permissions).
+  final bool isError;
+
+  /// Timestamp used to distinguish repeated identical resolutions so the UI can
+  /// show a fresh notice for every button tap.
+  final DateTime resolvedAt;
+
+  HarnessA2UIActionResolved({
+    required super.sessionId,
+    super.turns = const [],
+    required this.message,
+    this.isError = false,
+    DateTime? resolvedAt,
+  }) : resolvedAt = resolvedAt ?? DateTime.now();
+
+  @override
+  List<Object?> get props => [sessionId, turns, message, isError, resolvedAt];
+}
+
 /// Active turn is currently executing multi-turn tool loops.
 class HarnessTurnExecuting extends HarnessSessionState {
   /// Real-time tool indicators showing pending, running, and finished parallel calls.

@@ -45,6 +45,27 @@ class CancelActiveTurnEvent extends HarnessSessionEvent {
   const CancelActiveTurnEvent();
 }
 
+/// Dispatched when a user taps an interactive A2UI component.
+///
+/// The [action] is the raw action string configured on the component (for
+/// example `platform:set_alarm` or `confirm_choice`), and [dataModel] is the
+/// component payload resolved by the A2UI surface renderer.
+class HandleA2UIActionEvent extends HarnessSessionEvent {
+  /// Raw action declared on the A2UI component.
+  final String action;
+
+  /// Payload bound to the component when the action fired.
+  final Map<String, dynamic> dataModel;
+
+  const HandleA2UIActionEvent({
+    required this.action,
+    required this.dataModel,
+  });
+
+  @override
+  List<Object?> get props => [action, dataModel];
+}
+
 /// Dispatched internally as the engine stream yields progressive execution events.
 class SessionEngineProgressReceived extends HarnessSessionEvent {
   final EngineProgressEvent progressEvent;

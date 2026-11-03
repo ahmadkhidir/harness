@@ -296,10 +296,23 @@ class A2UIComponentRegistry {
     final iconName = ctx.properties['icon']?.toString();
     final disabled = ctx.properties['disabled'] == true;
 
+    // A2UI buttons may carry action-specific values in either a `parameters`
+    // or `payload` map. Merge them over the surface data model so the event
+    // router receives a single flat parameter dictionary (FEAT-007).
+    final actionParameters = <String, dynamic>{};
+    for (final key in const ['parameters', 'payload']) {
+      final value = ctx.properties[key];
+      if (value is Map) {
+        actionParameters.addAll(Map<String, dynamic>.from(value));
+      }
+    }
+
     VoidCallback? onPressed = disabled
         ? null
         : () {
-            ctx.onAction?.call(action, ctx.dataModel);
+            final payload = Map<String, dynamic>.from(ctx.dataModel)
+              ..addAll(actionParameters);
+            ctx.onAction?.call(action, payload);
           };
 
     Widget content = iconName != null

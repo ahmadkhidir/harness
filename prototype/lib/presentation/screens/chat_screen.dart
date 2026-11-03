@@ -385,6 +385,16 @@ class _ChatScreenState extends State<ChatScreen> {
         listener: (context, state) {
           if (state is HarnessSessionError) {
             _handleSessionError(context, state);
+          } else if (state is HarnessA2UIActionResolved) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(state.message),
+                duration: const Duration(seconds: 3),
+                backgroundColor:
+                    state.isError ? Theme.of(context).colorScheme.error : null,
+              ),
+            );
+            _scrollToBottom();
           } else if (state is HarnessTurnExecuting ||
               state is HarnessSessionReady) {
             _scrollToBottom();
@@ -410,7 +420,17 @@ class _ChatScreenState extends State<ChatScreen> {
                         itemCount: turns.length + (isExecuting ? 1 : 0),
                         itemBuilder: (context, index) {
                           if (index < turns.length) {
-                            return MessageBubble(turn: turns[index]);
+                            return MessageBubble(
+                              turn: turns[index],
+                              onA2UIAction: (action, dataModel) {
+                                context.read<HarnessSessionBloc>().add(
+                                      HandleA2UIActionEvent(
+                                        action: action,
+                                        dataModel: dataModel,
+                                      ),
+                                    );
+                              },
+                            );
                           }
 
                           // Live executing turn item
