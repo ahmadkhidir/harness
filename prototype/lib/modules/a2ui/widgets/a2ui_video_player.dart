@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import 'a2ui_media_source.dart';
+
 /// Interactive on-device video player component for A2UI surfaces.
 ///
 /// Features:
@@ -49,33 +51,37 @@ class _A2UIVideoPlayerState extends State<A2UIVideoPlayer> {
       return;
     }
 
-    final uri = Uri.tryParse(cleanUrl);
-    if (uri == null || (!uri.isScheme('http') && !uri.isScheme('https') && !uri.isScheme('file'))) {
-      setState(() => _errorMessage = 'Invalid video URL: $cleanUrl');
+    final media = A2UIMediaSource.resolve(cleanUrl);
+    if (media.isEmpty) {
+      setState(() => _errorMessage = 'Invalid or unresolved video source.');
       return;
     }
 
     try {
-      _controller = VideoPlayerController.networkUrl(uri)
-        ..initialize().then((_) {
-          if (!mounted) return;
-          setState(() {
-            _isInitialized = true;
-            _errorMessage = null;
-          });
-          if (widget.autoPlay) {
-            _controller?.play();
-            _startHideControlsTimer();
-          }
-        }).catchError((e) {
-          if (!mounted) return;
-          setState(() {
-            _isInitialized = false;
-            _errorMessage = 'Video playback error: $e';
-          });
-        });
+      final controller = media.isLocal
+          ? VideoPlayerController.file(media.file!)
+          : VideoPlayerController.networkUrl(Uri.parse(media.networkUrl!));
+      _controller = controller;
 
-      _controller?.addListener(_onControllerUpdate);
+      controller.initialize().then((_) {
+        if (!mounted) return;
+        setState(() {
+          _isInitialized = true;
+          _errorMessage = null;
+        });
+        if (widget.autoPlay) {
+          controller.play();
+          _startHideControlsTimer();
+        }
+      }).catchError((e) {
+        if (!mounted) return;
+        setState(() {
+          _isInitialized = false;
+          _errorMessage = 'Video playback error: $e';
+        });
+      });
+
+      controller.addListener(_onControllerUpdate);
     } catch (e) {
       setState(() {
         _isInitialized = false;

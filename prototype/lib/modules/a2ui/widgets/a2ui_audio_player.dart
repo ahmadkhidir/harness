@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
+import 'a2ui_media_source.dart';
+
 /// Interactive on-device audio player component for A2UI surfaces.
 ///
 /// Features:
@@ -87,8 +89,9 @@ class _A2UIAudioPlayerState extends State<A2UIAudioPlayer> {
   Future<void> _togglePlay() async {
     if (_player == null) return;
 
-    if (widget.url.trim().isEmpty) {
-      setState(() => _errorMessage = 'No audio source URL provided.');
+    final media = A2UIMediaSource.resolve(widget.url);
+    if (media.isEmpty) {
+      setState(() => _errorMessage = 'No playable audio source provided.');
       return;
     }
 
@@ -102,8 +105,10 @@ class _A2UIAudioPlayerState extends State<A2UIAudioPlayer> {
         await _player!.pause();
       } else if (_playerState == PlayerState.paused) {
         await _player!.resume();
+      } else if (media.isLocal) {
+        await _player!.play(DeviceFileSource(media.file!.path));
       } else {
-        await _player!.play(UrlSource(widget.url.trim()));
+        await _player!.play(UrlSource(media.networkUrl!));
       }
     } catch (e) {
       if (!mounted) return;

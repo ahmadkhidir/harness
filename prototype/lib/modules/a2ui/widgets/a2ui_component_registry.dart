@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../catalogs/basic_v1_catalog.dart';
 import 'a2ui_audio_player.dart';
+import 'a2ui_media_source.dart';
 import 'a2ui_video_player.dart';
 
 /// Context provided to an [A2UIComponentBuilder] when instantiating a Flutter widget.
@@ -373,27 +374,34 @@ class A2UIComponentRegistry {
         break;
     }
 
-    Widget imageWidget;
-    if (resolvedUrl.isEmpty) {
-      imageWidget = Container(
-        height: 120,
-        color: theme.colorScheme.surfaceContainerHighest,
-        child: Center(
-          child: Icon(Icons.broken_image, color: theme.colorScheme.onSurfaceVariant),
-        ),
-      );
-    } else {
-      imageWidget = Image.network(
-        resolvedUrl,
-        semanticLabel: description,
-        fit: fit,
-        errorBuilder: (context, error, stackTrace) => Container(
+    Widget brokenImage() => Container(
           height: 120,
           color: theme.colorScheme.surfaceContainerHighest,
           child: Center(
-            child: Icon(Icons.broken_image, color: theme.colorScheme.error),
+            child: Icon(
+              Icons.broken_image,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
-        ),
+        );
+
+    Widget imageWidget;
+    final media = A2UIMediaSource.resolve(resolvedUrl);
+    if (media.isEmpty) {
+      imageWidget = brokenImage();
+    } else if (media.isLocal) {
+      imageWidget = Image.file(
+        media.file!,
+        semanticLabel: description,
+        fit: fit,
+        errorBuilder: (context, error, stackTrace) => brokenImage(),
+      );
+    } else {
+      imageWidget = Image.network(
+        media.networkUrl!,
+        semanticLabel: description,
+        fit: fit,
+        errorBuilder: (context, error, stackTrace) => brokenImage(),
       );
     }
 
