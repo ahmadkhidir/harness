@@ -124,13 +124,18 @@ class JsonSchemaValidator {
       }
     }
 
-    // 3. Type check
+    // 3. Type check (supports unions such as ["string", "object"])
     if (schema.containsKey('type')) {
-      final expectedType = schema['type']?.toString();
-      if (expectedType != null && !_checkType(data, expectedType)) {
+      final rawType = schema['type'];
+      final expectedTypes = rawType is List
+          ? rawType.map((type) => type.toString()).toList()
+          : [rawType.toString()];
+      final matches = expectedTypes.any((type) => _checkType(data, type));
+      if (!matches) {
         errors.add(JsonSchemaError(
           path: currentPath,
-          message: 'Expected type "$expectedType" but got ${_describeType(data)} ($data).',
+          message:
+              'Expected type "${expectedTypes.join(' or ')}" but got ${_describeType(data)} ($data).',
           value: data,
           keyword: 'type',
         ));
@@ -210,22 +215,47 @@ class JsonSchemaValidator {
         }
       }
 
-      // Check defined properties
-      if (schema.containsKey('properties') && schema['properties'] is Map) {
-        final propsSchema = Map<String, dynamic>.from(schema['properties'] as Map);
-        for (final entry in propsSchema.entries) {
-          final propName = entry.key;
-          final propSchema = entry.value;
+      final propsSchema = schema['properties'] is Map
+          ? Map<String, dynamic>.from(schema['properties'] as Map)
+          : const <String, dynamic>{};
 
-          if (mapData.containsKey(propName) && mapData[propName] != null) {
-            if (propSchema is Map) {
-              _validateNode(
-                mapData[propName],
-                Map<String, dynamic>.from(propSchema),
-                '$currentPath/$propName',
-                errors,
-              );
-            }
+      // Check defined properties
+      for (final entry in propsSchema.entries) {
+        final propName = entry.key;
+        final propSchema = entry.value;
+
+        if (mapData.containsKey(propName) && mapData[propName] != null) {
+          if (propSchema is Map) {
+            _validateNode(
+              mapData[propName],
+              Map<String, dynamic>.from(propSchema),
+              '$currentPath/$propName',
+              errors,
+            );
+          }
+        }
+      }
+
+      // Handle additionalProperties (false forbids unknown keys; a schema
+      // validates unknown values).
+      final additional = schema['additionalProperties'];
+      if (additional == false || additional is Map) {
+        for (final key in mapData.keys) {
+          if (propsSchema.containsKey(key)) continue;
+          if (additional == false) {
+            errors.add(JsonSchemaError(
+              path: '$currentPath/$key',
+              message: 'Property "$key" is not allowed by the schema.',
+              value: mapData[key],
+              keyword: 'additionalProperties',
+            ));
+          } else if (additional is Map) {
+            _validateNode(
+              mapData[key],
+              Map<String, dynamic>.from(additional),
+              '$currentPath/$key',
+              errors,
+            );
           }
         }
       }

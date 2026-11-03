@@ -118,6 +118,54 @@ void main() {
       expect(summary, contains('at /parameters/parameters/messages/2/createSurface'));
     });
 
+    test('supports union types', () {
+      final schema = {
+        'type': 'object',
+        'properties': {
+          'value': {
+            'type': ['string', 'object'],
+          },
+        },
+      };
+
+      expect(
+        JsonSchemaValidator.validate({'value': 'text'}, schema).isValid,
+        isTrue,
+      );
+      expect(
+        JsonSchemaValidator.validate({
+          'value': {'@path': '/name'},
+        }, schema).isValid,
+        isTrue,
+      );
+      expect(
+        JsonSchemaValidator.validate({'value': 42}, schema).isValid,
+        isFalse,
+      );
+    });
+
+    test('rejects additional properties when disallowed', () {
+      final schema = {
+        'type': 'object',
+        'properties': {
+          'child': {'type': 'string'},
+        },
+        'required': ['child'],
+        'additionalProperties': false,
+      };
+
+      final valid = JsonSchemaValidator.validate({'child': 'a'}, schema);
+      expect(valid.isValid, isTrue);
+
+      final invalid = JsonSchemaValidator.validate({
+        'child': 'a',
+        'children': ['b'],
+      }, schema);
+      expect(invalid.isValid, isFalse);
+      expect(invalid.errors.single.path, '/children');
+      expect(invalid.errors.single.keyword, 'additionalProperties');
+    });
+
     test('validates enum values', () {
       final schema = {
         'type': 'object',
