@@ -260,12 +260,16 @@ class SessionService {
     fs.activeSessionId = sessionId;
   }
 
-  /// Appends a user line to `context.txt` without creating a chat turn.
+  /// Records an interface selection as a visible action turn.
   ///
-  /// Used for interface selections that should reach the model but stay out of
-  /// `turns.json` and the rendered conversation. Session metadata (context size
-  /// and updated time) is refreshed when the session already exists.
-  Future<void> appendUserContextLine(String sessionId, String text) async {
+  /// `turns.json` receives [actionTurn] (content type `action`, human-readable
+  /// label), while `context.txt` receives the full [modelPrompt] so the model
+  /// keeps the structured payload without the raw text appearing in chat.
+  Future<void> appendActionTurn(
+    String sessionId,
+    Turn actionTurn,
+    String modelPrompt,
+  ) async {
     final sessionDir = fs.sessionDir(sessionId);
     if (!sessionDir.existsSync()) {
       sessionDir.createSync(recursive: true);
@@ -273,25 +277,35 @@ class SessionService {
 
     final contextFile = fs.sessionContextFile(sessionId);
     contextFile.writeAsStringSync(
-      ContextLine(type: ContextLineType.user, content: text).format(),
+      ContextLine(type: ContextLineType.user, content: modelPrompt).format(),
       mode: FileMode.append,
       flush: true,
     );
 
-    final session = await getSession(sessionId);
-    if (session != null) {
-      final turns = await loadTurns(sessionId);
-      final updatedSession = session.copyWith(
-        updatedAt: DateTime.now().toUtc(),
-        contextSizeBytes:
-            contextFile.existsSync() ? contextFile.lengthSync() : 0,
-      );
-      _atomicWriteJson(fs.sessionTurnsFile(sessionId), {
-        'session': updatedSession.toJson(),
-        'turns': turns.map((turn) => turn.toJson()).toList(),
-      });
-    }
+    final existingTurns = await loadTurns(sessionId);
+    final updatedTurns = List<Turn>.from(existingTurns)..add(actionTurn);
 
+    final currentSession = (await getSession(sessionId)) ??
+        Session(
+          id: sessionId,
+          title: 'Session $sessionId',
+          createdAt: actionTurn.timestamp.toUtc(),
+          updatedAt: actionTurn.timestamp.toUtc(),
+          totalTurns: 0,
+          contextSizeBytes: 0,
+        );
+
+    final updatedSession = currentSession.copyWith(
+      totalTurns: updatedTurns.length,
+      updatedAt: actionTurn.timestamp.toUtc(),
+      contextSizeBytes:
+          contextFile.existsSync() ? contextFile.lengthSync() : 0,
+    );
+
+    _atomicWriteJson(fs.sessionTurnsFile(sessionId), {
+      'session': updatedSession.toJson(),
+      'turns': updatedTurns.map((turn) => turn.toJson()).toList(),
+    });
     fs.activeSessionId = sessionId;
   }
 

@@ -362,11 +362,15 @@ void main() {
 
         final ready = await readyFuture as HarnessSessionReady;
 
-        // Interface selections are sent to the model but are not rendered as
-        // user chat turns.
-        expect(ready.turns.any((turn) => turn.sender == 'user'), isFalse);
-        expect(ready.turns.single.sender, equals('agent'));
-        expect(ready.turns.single.text, equals('Window seat confirmed.'));
+        // Interface selections render as an action receipt, not as typed text.
+        final actionTurn =
+            ready.turns.firstWhere((turn) => turn.contentType == 'action');
+        expect(actionTurn.sender, 'user');
+        expect(actionTurn.text, 'Confirm choice');
+        expect(ready.turns.where((turn) => turn.contentType == 'action'),
+            hasLength(1));
+        expect(ready.turns.last.sender, 'agent');
+        expect(ready.turns.last.text, 'Window seat confirmed.');
         expect(provider.prompts, isNotEmpty);
         expect(provider.prompts.last, contains('confirm_choice'));
         expect(provider.prompts.last, contains('"seat":"12A"'));
@@ -377,10 +381,10 @@ void main() {
     );
 
     test(
-      'A2UI conversation action is written to context.txt but not turns.json',
+      'A2UI action keeps the technical prompt out of turns.json but shows an action receipt',
       () async {
         final tempDir =
-            await Directory.systemTemp.createTemp('feat007_hidden_action_');
+            await Directory.systemTemp.createTemp('feat007_action_receipt_');
         addTearDown(() async {
           HarnessFileSystem.instance = null;
           if (await tempDir.exists()) await tempDir.delete(recursive: true);
@@ -429,8 +433,17 @@ void main() {
         expect(context, contains('"location":"Nigeria"'));
 
         final persisted = await sessionService.loadTurns(sessionId);
-        expect(persisted.any((turn) => turn.sender == 'user'), isFalse);
-        expect(persisted.single.sender, 'agent');
+        final actionTurn = persisted.first;
+        expect(actionTurn.contentType, 'action');
+        expect(actionTurn.text, 'View tailored resume');
+        expect(
+          persisted.any(
+            (turn) => (turn.text ?? '').contains('Selected data'),
+          ),
+          isFalse,
+        );
+        expect(persisted.singleWhere((turn) => turn.sender == 'agent').text,
+            'Resume tailored.');
       },
     );
 

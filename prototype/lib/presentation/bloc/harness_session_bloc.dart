@@ -90,15 +90,14 @@ class HarnessSessionBloc
 
   /// Starts an engine turn for [prompt].
   ///
-  /// Shared by direct user submissions and conversational A2UI actions. Direct
-  /// prompts are persisted as visible user turns; interface selections pass
-  /// [visibleInChat] as false so they reach the model and `context.txt` without
-  /// appearing in `turns.json` or the rendered conversation.
+  /// Direct prompts are persisted as visible user turns. A2UI selections pass
+  /// an [actionLabel] so the transcript shows a compact action receipt while
+  /// [prompt] (the structured payload) reaches the model and `context.txt`.
   Future<void> _startPrompt(
     String prompt,
     String? explicitApiKey,
     Emitter<HarnessSessionState> emit, {
-    bool visibleInChat = true,
+    String? actionLabel,
   }) async {
     final currentSessionId =
         state.sessionId ?? 'sess_${DateTime.now().millisecondsSinceEpoch}';
@@ -106,7 +105,26 @@ class HarnessSessionBloc
     final priorTurns = List<Turn>.from(state.turns);
     List<Turn> updatedTurns;
 
-    if (visibleInChat) {
+    if (actionLabel != null) {
+      final actionTurn = Turn(
+        id: 'turn_action_${DateTime.now().millisecondsSinceEpoch}',
+        sessionId: currentSessionId,
+        timestamp: DateTime.now().toUtc(),
+        sender: 'user',
+        contentType: 'action',
+        text: actionLabel,
+      );
+
+      if (sessionService != null) {
+        await sessionService!.appendActionTurn(
+          currentSessionId,
+          actionTurn,
+          prompt,
+        );
+      }
+
+      updatedTurns = List<Turn>.from(priorTurns)..add(actionTurn);
+    } else {
       // Optimistically record user prompt turn in the chat history.
       final userTurn = Turn(
         id: 'turn_user_${DateTime.now().millisecondsSinceEpoch}',
@@ -123,12 +141,6 @@ class HarnessSessionBloc
       }
 
       updatedTurns = List<Turn>.from(priorTurns)..add(userTurn);
-    } else {
-      // Interface selections stay in the context transcript only.
-      if (sessionService != null) {
-        await sessionService!.appendUserContextLine(currentSessionId, prompt);
-      }
-      updatedTurns = priorTurns;
     }
 
     emit(HarnessTurnExecuting(
@@ -173,7 +185,12 @@ class HarnessSessionBloc
 
     switch (route.kind) {
       case A2UIEventKind.conversationTurn:
-        await _startPrompt(route.prompt!, null, emit, visibleInChat: false);
+        await _startPrompt(
+          route.prompt!,
+          null,
+          emit,
+          actionLabel: _actionLabel(route.action),
+        );
         return;
       case A2UIEventKind.platformAction:
         final response = await a2uiEventRouter.executePlatform(route);
@@ -214,6 +231,13 @@ class HarnessSessionBloc
     if (previous is HarnessTurnExecuting) {
       emit(previous);
     }
+  }
+
+  /// Converts an A2UI action identifier into a human-readable receipt label.
+  String _actionLabel(String action) {
+    final cleaned = action.replaceAll(RegExp(r'[_\-.]+'), ' ').trim();
+    if (cleaned.isEmpty) return 'Interface action';
+    return cleaned[0].toUpperCase() + cleaned.substring(1);
   }
 
   /// Produces a concise user-facing description of a platform action result.

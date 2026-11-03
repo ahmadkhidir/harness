@@ -53,6 +53,53 @@ class MessageBubble extends StatelessWidget {
         ? theme.colorScheme.onPrimaryContainer
         : theme.colorScheme.onSurfaceVariant;
 
+    // Interface selections render as a compact action receipt, never as text
+    // the user supposedly typed.
+    if (turn.contentType == 'action') {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.secondaryContainer,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.touch_app,
+                  size: 16,
+                  color: theme.colorScheme.onSecondaryContainer,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    turn.text ?? 'Interface action',
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSecondaryContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  timeStr,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSecondaryContainer
+                        .withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Column(

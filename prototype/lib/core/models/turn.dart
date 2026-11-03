@@ -17,10 +17,12 @@ class Turn {
   /// Originator of the turn message: either `'user'` or `'agent'`.
   final String sender;
 
-  /// Content discriminator: either `'text'` (Markdown) or `'a2ui'` (declarative widget).
+  /// Content discriminator: `'text'` (Markdown), `'a2ui'` (declarative widget),
+  /// or `'action'` (a human-readable receipt for an interface selection).
   final String contentType;
 
-  /// User-facing Markdown content when [contentType] is `'text'`, or optional companion text for `'a2ui'`.
+  /// User-facing Markdown content when [contentType] is `'text'`, optional
+  /// companion text for `'a2ui'`, or the action label for `'action'`.
   final String? text;
 
   /// Surface identifier for the mounted A2UI component when [contentType] is `'a2ui'`.
@@ -55,9 +57,11 @@ class Turn {
     if (sender != 'user' && sender != 'agent') {
       throw ArgumentError('sender must be "user" or "agent", got "$sender".');
     }
-    if (contentType != 'text' && contentType != 'a2ui') {
+    if (contentType != 'text' &&
+        contentType != 'a2ui' &&
+        contentType != 'action') {
       throw ArgumentError(
-          'contentType must be "text" or "a2ui", got "$contentType".');
+          'contentType must be "text", "a2ui", or "action", got "$contentType".');
     }
     if (tokenCount != null && tokenCount! < 0) {
       throw ArgumentError('tokenCount must be non-negative.');
@@ -75,6 +79,9 @@ class Turn {
 
   /// Convenience getter indicating if the turn renders plain Markdown text.
   bool get isText => contentType == 'text';
+
+  /// Convenience getter indicating if the turn is an interface action receipt.
+  bool get isAction => contentType == 'action';
 
   /// Serializes the turn into a JSON map adhering to turn.schema.json.
   Map<String, dynamic> toJson() {
