@@ -226,6 +226,146 @@ void main() {
       expect(text, equals('Hi from the device'));
     });
 
+    test('GeminiModelProvider retries without thinking when the budget is exhausted', () async {
+      final config = ProviderConfig(
+        id: 'gemini',
+        providerType: 'gemini',
+        displayName: 'Gemini',
+        modelName: 'gemini-2.5-flash',
+      );
+
+      var calls = 0;
+      final client = MockHttpClient((request) async {
+        calls++;
+        final body =
+            json.decode((request as http.Request).body) as Map<String, dynamic>;
+        final generationConfig =
+            body['generationConfig'] as Map<String, dynamic>;
+
+        if (calls == 1) {
+          expect(generationConfig['thinkingConfig'], isNull);
+          return http.Response(
+            json.encode({
+              'candidates': [
+                {
+                  'finishReason': 'MAX_TOKENS',
+                  'content': {
+                    'parts': [
+                      {'text': 'reasoning only', 'thought': true},
+                    ],
+                  },
+                }
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+
+        expect(
+          (generationConfig['thinkingConfig'] as Map)['thinkingBudget'],
+          0,
+        );
+        return http.Response(
+          json.encode({
+            'candidates': [
+              {
+                'finishReason': 'STOP',
+                'content': {
+                  'parts': [
+                    {'text': 'Here is the answer.'},
+                  ],
+                },
+              }
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      final provider = GeminiModelProvider(config: config, client: client);
+      final text = await provider.generate(
+        messages: [const ModelMessage(role: 'user', content: 'Research this job')],
+        apiKey: 'test_gemini_key',
+      );
+
+      expect(calls, 2);
+      expect(text, 'Here is the answer.');
+    });
+
+    test('GeminiModelProvider explains blocked requests', () async {
+      final config = ProviderConfig(
+        id: 'gemini',
+        providerType: 'gemini',
+        displayName: 'Gemini',
+        modelName: 'gemini-2.0-flash',
+      );
+
+      final client = MockHttpClient((request) async {
+        return http.Response(
+          json.encode({
+            'promptFeedback': {'blockReason': 'SAFETY'},
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      final provider = GeminiModelProvider(config: config, client: client);
+
+      await expectLater(
+        () => provider.generate(
+          messages: [const ModelMessage(role: 'user', content: 'Hello')],
+          apiKey: 'test_gemini_key',
+        ),
+        throwsA(isA<ModelProviderException>().having(
+          (e) => e.message,
+          'message',
+          contains('blocked the request'),
+        )),
+      );
+    });
+
+    test('GeminiModelProvider explains MAX_TOKENS responses without reasoning support', () async {
+      final config = ProviderConfig(
+        id: 'gemini',
+        providerType: 'gemini',
+        displayName: 'Gemini',
+        modelName: 'gemini-2.0-flash',
+        maxOutputTokens: 1024,
+      );
+
+      final client = MockHttpClient((request) async {
+        return http.Response(
+          json.encode({
+            'candidates': [
+              {
+                'finishReason': 'MAX_TOKENS',
+                'content': {'parts': <Map<String, dynamic>>[]},
+              }
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      final provider = GeminiModelProvider(config: config, client: client);
+
+      await expectLater(
+        () => provider.generate(
+          messages: [const ModelMessage(role: 'user', content: 'Hello')],
+          apiKey: 'test_gemini_key',
+        ),
+        throwsA(isA<ModelProviderException>().having(
+          (e) => e.message,
+          'message',
+          contains('Increase Max Output Tokens'),
+        )),
+      );
+    });
+
     test('GeminiModelProvider throws AuthenticationException on 401/403', () async {
       final config = ProviderConfig(
         id: 'gemini',

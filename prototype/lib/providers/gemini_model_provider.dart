@@ -28,6 +28,46 @@ class GeminiModelProvider extends ModelProvider {
       );
     }
 
+    final supportsThinking = _supportsThinking(config.modelName);
+    final configuredBudget = config.extraConfig['thinkingBudget'];
+    final thinkingBudget = configuredBudget is int ? configuredBudget : null;
+
+    var result = await _request(
+      key: key,
+      messages: messages,
+      systemInstruction: systemInstruction,
+      thinkingBudget: supportsThinking ? thinkingBudget : null,
+    );
+
+    // Thinking models can spend the whole output budget on reasoning and return
+    // no answer. Retry once with reasoning disabled so simple prompts still
+    // complete instead of surfacing an empty reply.
+    if (result.text.trim().isEmpty &&
+        supportsThinking &&
+        result.finishReason == 'MAX_TOKENS' &&
+        thinkingBudget != 0) {
+      result = await _request(
+        key: key,
+        messages: messages,
+        systemInstruction: systemInstruction,
+        thinkingBudget: 0,
+      );
+    }
+
+    if (result.text.trim().isEmpty) {
+      throw _emptyResponseException(result);
+    }
+
+    return stripInlineReasoning(result.text);
+  }
+
+  /// Performs a single generateContent request and normalizes the response.
+  Future<_GeminiResponse> _request({
+    required String key,
+    required List<ModelMessage> messages,
+    required String? systemInstruction,
+    required int? thinkingBudget,
+  }) async {
     final c = client ?? http.Client();
     final model = config.modelName;
     final url = Uri.parse(
@@ -54,6 +94,8 @@ class GeminiModelProvider extends ModelProvider {
       'generationConfig': {
         'temperature': config.temperature,
         'maxOutputTokens': config.maxOutputTokens,
+        if (thinkingBudget != null)
+          'thinkingConfig': {'thinkingBudget': thinkingBudget},
       },
     };
 
@@ -71,31 +113,102 @@ class GeminiModelProvider extends ModelProvider {
       );
     }
 
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      final data = json.decode(response.body);
-      final candidates = data['candidates'] as List?;
-      if (candidates != null && candidates.isNotEmpty) {
-        final parts = candidates[0]['content']['parts'] as List?;
-        if (parts != null) {
-          final buffer = StringBuffer();
-          for (final part in parts) {
-            if (part is! Map) continue;
-            // Thinking models flag chain-of-thought parts; never parse or show them.
-            if (part['thought'] == true) continue;
-            final text = part['text'] as String?;
-            if (text != null) buffer.write(text);
-          }
-          return stripInlineReasoning(buffer.toString());
-        }
-      }
-      return '';
-    } else {
+    if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ModelProviderException(
         provider: 'gemini',
         statusCode: response.statusCode,
         message: 'Gemini API error: ${response.body}',
       );
     }
+
+    final decoded = json.decode(response.body);
+    final data = decoded is Map ? decoded : const {};
+
+    final blockReason = data['promptFeedback'] is Map
+        ? (data['promptFeedback'] as Map)['blockReason']?.toString()
+        : null;
+
+    var text = '';
+    String? finishReason;
+    final partTypes = <String>[];
+
+    final candidates = data['candidates'];
+    if (candidates is List && candidates.isNotEmpty) {
+      final candidate = candidates.first;
+      if (candidate is Map) {
+        finishReason = candidate['finishReason']?.toString();
+        final content = candidate['content'];
+        final parts = content is Map ? content['parts'] : null;
+        if (parts is List) {
+          for (final part in parts) {
+            if (part is! Map) continue;
+            // Thinking models flag chain-of-thought parts; never parse or show them.
+            if (part['thought'] == true) {
+              partTypes.add('thought');
+              continue;
+            }
+            final partText = part['text'];
+            if (partText is String) {
+              text += partText;
+              partTypes.add('text');
+            } else if (part.isNotEmpty) {
+              partTypes.add(part.keys.first.toString());
+            }
+          }
+        }
+      }
+    }
+
+    return _GeminiResponse(
+      text: text,
+      finishReason: finishReason,
+      blockReason: blockReason,
+      partTypes: partTypes,
+    );
+  }
+
+  /// Builds an actionable error for an empty Gemini response.
+  ModelProviderException _emptyResponseException(_GeminiResponse result) {
+    if (result.blockReason != null && result.blockReason!.isNotEmpty) {
+      return ModelProviderException(
+        provider: 'gemini',
+        message:
+            'Gemini blocked the request (reason: ${result.blockReason}). Try rewording or switching providers.',
+      );
+    }
+
+    if (result.finishReason == 'MAX_TOKENS') {
+      return ModelProviderException(
+        provider: 'gemini',
+        message:
+            'Gemini reached its output limit before answering '
+            '(maxOutputTokens: ${config.maxOutputTokens}). Increase Max Output Tokens in Settings, then retry.',
+      );
+    }
+
+    if (result.finishReason == 'SAFETY' ||
+        result.finishReason == 'RECITATION' ||
+        result.finishReason == 'PROHIBITED_CONTENT') {
+      return ModelProviderException(
+        provider: 'gemini',
+        message:
+            'Gemini stopped the response (finish reason: ${result.finishReason}). Try rewording the request.',
+      );
+    }
+
+    final reason =
+        result.finishReason == null ? '' : ' (finish reason: ${result.finishReason})';
+    final parts =
+        result.partTypes.isEmpty ? '' : ' Parts: ${result.partTypes.join(', ')}.';
+    return ModelProviderException(
+      provider: 'gemini',
+      message: 'Gemini returned no text$reason.$parts',
+    );
+  }
+
+  bool _supportsThinking(String modelName) {
+    final name = modelName.toLowerCase();
+    return name.contains('2.5') || name.contains('thinking');
   }
 
   @override
@@ -118,4 +231,18 @@ class GeminiModelProvider extends ModelProvider {
       yield text.substring(i, end);
     }
   }
+}
+
+class _GeminiResponse {
+  final String text;
+  final String? finishReason;
+  final String? blockReason;
+  final List<String> partTypes;
+
+  const _GeminiResponse({
+    required this.text,
+    required this.finishReason,
+    required this.blockReason,
+    required this.partTypes,
+  });
 }
