@@ -96,6 +96,22 @@ Internal scratchpad note: user requested summary.
       expect(output.scratchpadText, isEmpty);
     });
 
+    test('treats empty send_message text as no explicit delivery', () {
+      const raw = '<system_call>{"command": "send_message", "parameters": {}}</system_call>';
+      final output = SystemCallParser.parse(raw);
+
+      expect(output.hasExplicitDelivery, isFalse);
+      expect(output.systemCalls, isEmpty);
+    });
+
+    test('accepts top-level text when parameters are omitted', () {
+      const raw = '<system_call>{"command": "send_message", "text": "Hi there!"}</system_call>';
+      final output = SystemCallParser.parse(raw);
+
+      expect(output.hasExplicitDelivery, isTrue);
+      expect(output.explicitTextMessage, 'Hi there!');
+    });
+
     test('captures malformed JSON inside system_call tags safely', () {
       const raw = '''
 <system_call>

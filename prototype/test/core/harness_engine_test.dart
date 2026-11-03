@@ -376,6 +376,47 @@ I need to query data first.
       expect(completedEvent.turn.a2uiSurfaceId, equals('main'));
       expect(completedEvent.turn.text, equals('Top Richest Countries'));
     });
+
+    test('retries once when the model returns an empty response', () async {
+      final provider = ScriptedModelProvider(script: [
+        '',
+        '<system_call>{"command": "send_message", "parameters": {"text": "Hello! How can I help?"}}</system_call>',
+      ]);
+
+      final engine = HarnessEngine(
+        router: router,
+        contextBuilder: contextBuilder,
+        modelProvider: provider,
+      );
+
+      final events = await engine
+          .executeTurn(userPrompt: 'Hello', sessionId: 'sess_empty_retry')
+          .toList();
+
+      expect(provider.recordedCalls.length, 2);
+      expect(provider.recordedCalls[1].last.content, contains('no user-visible text'));
+
+      final completed = events.last as EngineTurnCompleted;
+      expect(completed.turn.text, equals('Hello! How can I help?'));
+    });
+
+    test('reports an error instead of persisting a blank turn after repeated empty replies', () async {
+      final provider = ScriptedModelProvider(script: ['', '   ']);
+
+      final engine = HarnessEngine(
+        router: router,
+        contextBuilder: contextBuilder,
+        modelProvider: provider,
+      );
+
+      final events = await engine
+          .executeTurn(userPrompt: 'Hello', sessionId: 'sess_empty_error')
+          .toList();
+
+      expect(events.whereType<EngineTurnCompleted>(), isEmpty);
+      final error = events.whereType<EngineErrorOccurred>().single;
+      expect(error.message, contains('empty response'));
+    });
   });
 }
 

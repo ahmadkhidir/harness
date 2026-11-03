@@ -27,8 +27,12 @@ class ParsedModelOutput {
   bool get hasSystemCalls => systemCalls.isNotEmpty;
 
   /// True if the model explicitly emitted a delivery command (`send_message` or `send_a2ui`).
+  ///
+  /// Empty or whitespace-only text is treated as a missing delivery: accepting it
+  /// would persist a blank agent turn instead of letting the engine retry.
   bool get hasExplicitDelivery =>
-      explicitTextMessage != null || explicitA2UIPayload != null;
+      (explicitTextMessage?.trim().isNotEmpty ?? false) ||
+      explicitA2UIPayload != null;
 }
 
 /// Robust parser for extracting `<system_call>` XML/JSON blocks from model generation.
@@ -137,7 +141,10 @@ class SystemCallParser {
 
       if (cmd != null) {
         if (cmd == 'send_message') {
-          onTextMessage(params['text'] as String? ?? '');
+          // Some models hoist `text` to the top level instead of nesting it in
+          // `parameters`; accept both shapes before declaring the delivery empty.
+          final text = params['text'] as String? ?? decoded['text'] as String?;
+          onTextMessage(text ?? '');
           return;
         } else if (cmd == 'send_a2ui') {
           onA2UI(params, params['text'] as String?);

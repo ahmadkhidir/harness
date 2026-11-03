@@ -111,6 +111,9 @@ class HarnessEngine {
     dialogueHistory.add(ModelMessage(role: 'user', content: userPrompt));
 
     int turnsCount = 0;
+    // Guards against persisting a blank agent turn when the provider returns
+    // nothing or the model omits its delivery text.
+    int emptyResponseRetries = 0;
     final accumulatedToolCalls = <ToolExecutionRecord>[];
 
     while (turnsCount < maxTurns) {
@@ -244,6 +247,27 @@ class HarnessEngine {
         }
         if (text.isEmpty && parsed.scratchpadText.isNotEmpty) {
           text = parsed.scratchpadText;
+        }
+
+        // Never persist an empty reply. Give the model one corrective turn, then
+        // surface a real error instead of a blank bubble.
+        if (text.isEmpty) {
+          if (emptyResponseRetries < 1) {
+            emptyResponseRetries++;
+            dialogueHistory.add(
+              ModelMessage(
+                role: 'user',
+                content:
+                    '<system_response status="error">\nYour previous reply contained no user-visible text. Every turn must end with a non-empty delivery command, for example:\n<system_call>{"command": "send_message", "parameters": {"text": "<your reply>"}}</system_call>\nRespond to the user now.\n</system_response>',
+              ),
+            );
+            continue;
+          }
+          yield EngineErrorOccurred(
+            'The model returned an empty response. This usually means the provider '
+            'blocked the request or the model omitted its delivery message. Please try again.',
+          );
+          return;
         }
 
         final turn = Turn(

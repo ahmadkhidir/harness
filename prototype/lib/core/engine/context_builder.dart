@@ -57,6 +57,8 @@ class ContextBuilder {
     buffer.writeln(
         '  -> Deliver via `<system_call>{"command": "send_message", "parameters": {"text": "<markdown>"}}</system_call>`.');
     buffer.writeln(
+        '- Every turn MUST end with a non-empty delivery command, including greetings and small talk. Never emit an empty `send_message`.');
+    buffer.writeln(
         '- If an A2UI delivery has errors: you MUST repair the A2UI component hierarchy and re-emit `send_a2ui`. Do NOT fall back to `send_message`.');
     buffer.writeln();
 
