@@ -170,6 +170,130 @@ class SkillsService {
     return null;
   }
 
+  /// Validates a directory selected from device storage before import.
+  ///
+  /// A valid package contains a `SKILL.md` whose frontmatter or Markdown
+  /// headers produce a parseable [SkillMetadata].
+  SkillImportValidation validateSkillDirectory(Directory source) {
+    if (!source.existsSync()) {
+      return SkillImportValidation.invalid(
+        'The selected folder no longer exists.',
+      );
+    }
+
+    final fs = fileSystem;
+    if (fs == null) {
+      return SkillImportValidation.invalid(
+        'Storage is not initialized.',
+      );
+    }
+
+    final canonicalSource = p.canonicalize(source.path);
+    final canonicalSkills = p.canonicalize(fs.skillsDir.path);
+    if (p.isWithin(canonicalSkills, canonicalSource)) {
+      return SkillImportValidation.invalid(
+        'The selected folder is already inside the skills directory.',
+      );
+    }
+
+    final skillFile = File(p.join(source.path, 'SKILL.md'));
+    if (!skillFile.existsSync()) {
+      return SkillImportValidation.invalid(
+        'SKILL.md was not found in the selected folder.',
+      );
+    }
+
+    try {
+      final content = skillFile.readAsStringSync();
+      final metadata = parseFrontmatter(content, p.basename(source.path));
+      if (metadata == null) {
+        return SkillImportValidation.invalid(
+          'SKILL.md does not contain valid skill frontmatter or headers.',
+        );
+      }
+      return SkillImportValidation.valid(metadata, source);
+    } catch (e) {
+      return SkillImportValidation.invalid('Could not read SKILL.md: $e');
+    }
+  }
+
+  /// True when a skill directory with [name] already exists.
+  bool skillExists(String name) {
+    final fs = fileSystem;
+    if (fs == null) return false;
+    return Directory(p.join(fs.skillsDir.path, name)).existsSync();
+  }
+
+  /// Copies a validated skill package into `<HarnessRoot>/skills/<name>/`.
+  ///
+  /// Throws [SkillAlreadyExistsException] when the destination exists and
+  /// [overwrite] is false. The copy is staged in a temporary directory and
+  /// swapped into place so a failed import never leaves a half-written skill.
+  Future<void> importSkillPackage({
+    required Directory source,
+    required String name,
+    bool overwrite = false,
+  }) async {
+    final fs = fileSystem;
+    if (fs == null) {
+      throw StateError('Storage is not initialized.');
+    }
+
+    final destination = Directory(p.join(fs.skillsDir.path, name));
+    if (destination.existsSync() && !overwrite) {
+      throw SkillAlreadyExistsException(name);
+    }
+
+    final staging = Directory(
+      p.join(
+        fs.skillsDir.path,
+        '.import_${DateTime.now().microsecondsSinceEpoch}',
+      ),
+    );
+
+    try {
+      await staging.create(recursive: true);
+      await _copySkillDirectory(source, staging);
+      if (destination.existsSync()) {
+        await destination.delete(recursive: true);
+      }
+      await staging.rename(destination.path);
+    } catch (_) {
+      if (staging.existsSync()) {
+        await staging.delete(recursive: true);
+      }
+      rethrow;
+    }
+  }
+
+  /// Recursively copies regular files and directories, skipping links.
+  Future<void> _copySkillDirectory(
+    Directory source,
+    Directory destination,
+  ) async {
+    const maxBytes = 50 * 1024 * 1024;
+    var totalBytes = 0;
+
+    await for (final entity in source.list(recursive: true, followLinks: false)) {
+      final relative = p.relative(entity.path, from: source.path);
+      if (entity is Link) continue;
+
+      if (entity is Directory) {
+        await Directory(p.join(destination.path, relative)).create(recursive: true);
+      } else if (entity is File) {
+        totalBytes += await entity.length();
+        if (totalBytes > maxBytes) {
+          throw const SkillImportException(
+            'Skill package exceeds the 50 MB import limit.',
+          );
+        }
+        final target = File(p.join(destination.path, relative));
+        await target.parent.create(recursive: true);
+        await entity.copy(target.path);
+      }
+    }
+  }
+
   /// Parses YAML frontmatter or Markdown headers from `SKILL.md` content.
   static SkillMetadata? parseFrontmatter(String content, String fallbackName) {
     final clean = content.trim();
@@ -255,3 +379,65 @@ class SkillsService {
     }
   }
 }
+
+/// Outcome of validating a skill folder before import.
+class SkillImportValidation {
+  /// True when the package can be imported.
+  final bool isValid;
+
+  /// Reason the package was rejected, or null when valid.
+  final String? error;
+
+  /// Parsed metadata for a valid package.
+  final SkillMetadata? metadata;
+
+  /// Source directory for a valid package.
+  final Directory? source;
+
+  const SkillImportValidation({
+    required this.isValid,
+    this.error,
+    this.metadata,
+    this.source,
+  });
+
+  /// Builds a valid result.
+  factory SkillImportValidation.valid(
+    SkillMetadata metadata,
+    Directory source,
+  ) {
+    return SkillImportValidation(
+      isValid: true,
+      metadata: metadata,
+      source: source,
+    );
+  }
+
+  /// Builds an invalid result with a user-facing reason.
+  factory SkillImportValidation.invalid(String error) {
+    return SkillImportValidation(isValid: false, error: error);
+  }
+}
+
+/// Thrown when importing a skill whose directory already exists.
+class SkillAlreadyExistsException implements Exception {
+  /// Existing skill name.
+  final String name;
+
+  const SkillAlreadyExistsException(this.name);
+
+  @override
+  String toString() => 'A skill named "$name" is already installed.';
+}
+
+/// Thrown when a skill package cannot be copied.
+class SkillImportException implements Exception {
+  /// Human-readable failure reason.
+  final String message;
+
+  const SkillImportException(this.message);
+
+  @override
+  String toString() => message;
+}
+
