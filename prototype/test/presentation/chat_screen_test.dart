@@ -146,6 +146,37 @@ void main() {
     switcherBloc.close();
   });
 
+  testWidgets('Typing slash opens the skill picker sheet', (tester) async {
+    final switcherBloc = ModelSwitcherBloc(
+      database: database,
+      keyStorage: keyStorage,
+    )..add(const LoadProviderConfigsEvent());
+
+    final sessionBloc = HarnessSessionBloc(
+      engine: engine,
+      keyStorage: keyStorage,
+    );
+
+    await tester.pumpWidget(createTestableChatScreen(
+      sessionBloc: sessionBloc,
+      switcherBloc: switcherBloc,
+    ));
+    for (int i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    await tester.enterText(find.byType(TextField), '/');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('Insert a skill'), findsOneWidget);
+
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpWidget(const SizedBox());
+    sessionBloc.close();
+    switcherBloc.close();
+  });
+
   testWidgets('Tapping prompt suggestion chip dispatches user turn',
       (WidgetTester tester) async {
     final switcherBloc = ModelSwitcherBloc(
