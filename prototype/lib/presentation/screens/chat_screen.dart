@@ -4,7 +4,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/models/on_device_model_spec.dart';
 import '../../core/models/provider_config.dart';
 import '../../core/routes/app_routes.dart';
+import '../../core/utils/file_system_manager.dart';
 import '../../data/services/model_download_service.dart';
+import '../../data/services/skills_service.dart';
 import '../bloc/harness_session_bloc.dart';
 import '../bloc/harness_session_event.dart';
 import '../bloc/harness_session_state.dart';
@@ -12,7 +14,10 @@ import '../bloc/model_switcher_bloc.dart';
 import '../bloc/model_switcher_event.dart';
 import '../bloc/model_switcher_state.dart';
 import '../widgets/empty_state.dart';
+import '../utils/composer_tags.dart';
 import '../widgets/message_bubble.dart';
+import '../widgets/skill_picker_sheet.dart';
+import '../widgets/storage_picker_sheet.dart';
 import '../widgets/system_call_pill.dart';
 import '../widgets/tool_calls_bottom_sheet.dart';
 
@@ -39,6 +44,10 @@ class _ChatScreenState extends State<ChatScreen> {
   final FocusNode _inputFocusNode = FocusNode();
   late final ModelDownloadService _downloadService =
       widget.downloadService ?? ModelDownloadService();
+  final SkillsService _skillsService = SkillsService();
+
+  String _previousInput = '';
+  bool _pickerOpen = false;
 
   @override
   void initState() {
@@ -47,14 +56,84 @@ class _ChatScreenState extends State<ChatScreen> {
     if (sessionBloc.state is HarnessSessionInitial) {
       sessionBloc.add(const InitializeSessionEvent());
     }
+    _inputController.addListener(_handleInputChanged);
   }
 
   @override
   void dispose() {
+    _inputController.removeListener(_handleInputChanged);
     _inputController.dispose();
     _scrollController.dispose();
     _inputFocusNode.dispose();
     super.dispose();
+  }
+
+  /// Opens skill/file pickers when the user types `/` or `@`.
+  void _handleInputChanged() {
+    final previous = _previousInput;
+    final next = _inputController.text;
+    _previousInput = next;
+
+    if (_pickerOpen) return;
+
+    if (shouldOpenSkillPicker(previous, next)) {
+      _openSkillPicker();
+      return;
+    }
+
+    final cursor = _inputController.selection.baseOffset;
+    final trigger = fileTriggerIndex(previous, next, cursor);
+    if (trigger != null) {
+      _openStoragePicker(trigger, cursor);
+    }
+  }
+
+  Future<void> _openSkillPicker() async {
+    _pickerOpen = true;
+    final skills = _skillsService.scanAvailableSkills();
+    final selected = await showSkillPickerSheet(context, skills);
+    _pickerOpen = false;
+    if (!mounted) return;
+
+    if (selected != null) {
+      _setInputText(insertSkillTag(selected.name));
+    } else {
+      _previousInput = _inputController.text;
+    }
+    _inputFocusNode.requestFocus();
+  }
+
+  Future<void> _openStoragePicker(int triggerIndex, int cursor) async {
+    final fileSystem = HarnessFileSystem.instance;
+    if (fileSystem == null) return;
+
+    _pickerOpen = true;
+    final path = await showStoragePickerSheet(context, fileSystem);
+    _pickerOpen = false;
+    if (!mounted) return;
+
+    if (path != null) {
+      final updated = insertFileTag(
+        text: _inputController.text,
+        triggerIndex: triggerIndex,
+        cursor: cursor,
+        path: path,
+      );
+      _setInputText(updated, cursor: triggerIndex + path.length + 2);
+    } else {
+      _previousInput = _inputController.text;
+    }
+    _inputFocusNode.requestFocus();
+  }
+
+  /// Replaces composer text without re-triggering the picker listeners.
+  void _setInputText(String text, {int? cursor}) {
+    _previousInput = text;
+    final offset = (cursor ?? text.length).clamp(0, text.length);
+    _inputController.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: offset),
+    );
   }
 
   void _scrollToBottom() {

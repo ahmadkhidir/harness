@@ -62,6 +62,13 @@ class ContextBuilder {
         '- If an A2UI delivery has errors: you MUST repair the A2UI component hierarchy and re-emit `send_a2ui`. Do NOT fall back to `send_message`.');
     buffer.writeln();
 
+    buffer.writeln('## Composer Tags');
+    buffer.writeln(
+        '- A token like `/skill-name` refers to an installed skill. Call `load_skill` for it before proceeding.');
+    buffer.writeln(
+        '- A token like `@primary/path` or `@<mount>/path` is a virtual storage path. Use `read_file` or `list_directory` as needed.');
+    buffer.writeln();
+
     buffer.writeln('## Available Commands');
     for (final cmd in commands) {
       buffer.writeln('- **${cmd.command}**: ${cmd.description}');
