@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -36,6 +37,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
 
   bool _isLoading = true;
   String? _errorMessage;
+  int _activeTab = 0;
 
   // Storage files state
   final TextEditingController _fileSearchController = TextEditingController();
@@ -52,6 +54,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(_handleTabChanged);
     _skillsService =
         widget.skillsService ?? SkillsService(fileSystem: _fs);
     _scanData();
@@ -59,9 +62,16 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
 
   @override
   void dispose() {
+    _tabController.removeListener(_handleTabChanged);
     _tabController.dispose();
     _fileSearchController.dispose();
     super.dispose();
+  }
+
+  void _handleTabChanged() {
+    if (_tabController.index != _activeTab) {
+      setState(() => _activeTab = _tabController.index);
+    }
   }
 
   void _scanData() {
@@ -101,6 +111,151 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     if (mounted) {
       setState(() {});
     }
+  }
+
+  /// Imports a skill folder selected from device storage after validation.
+  Future<void> _importSkill() async {
+    try {
+      final selectedPath = await FilePicker.getDirectoryPath();
+      if (selectedPath == null || selectedPath.trim().isEmpty) return;
+
+      final source = Directory(selectedPath);
+      final validation = _skillsService.validateSkillDirectory(source);
+      if (!validation.isValid) {
+        await _showImportError(validation.error ?? 'Invalid skill package.');
+        return;
+      }
+
+      var name = _normalizeSkillName(validation.metadata!.name);
+      if (name.isEmpty) {
+        await _showImportError('The skill name is empty after sanitization.');
+        return;
+      }
+
+      var overwrite = false;
+      if (_skillsService.skillExists(name)) {
+        final choice = await _askConflict(name);
+        if (choice == null) return;
+        if (choice == _SkillConflictChoice.overwrite) {
+          overwrite = true;
+        } else {
+          final renamed = await _askRename('$name-2');
+          if (renamed == null) return;
+          name = renamed;
+          if (_skillsService.skillExists(name)) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('A skill named "$name" already exists.')),
+            );
+            return;
+          }
+        }
+      }
+
+      await _skillsService.importSkillPackage(
+        source: source,
+        name: name,
+        overwrite: overwrite,
+      );
+      _rescan();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Imported skill "$name".')),
+      );
+    } on SkillAlreadyExistsException catch (e) {
+      await _showImportError(e.toString());
+    } on SkillImportException catch (e) {
+      await _showImportError(e.message);
+    } catch (e) {
+      await _showImportError('Could not import skill: $e');
+    }
+  }
+
+  Future<void> _showImportError(String message) {
+    if (!mounted) return Future.value();
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Invalid skill package'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<_SkillConflictChoice?> _askConflict(String name) {
+    return showDialog<_SkillConflictChoice>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Skill already installed'),
+        content: Text(
+          'A skill named "$name" already exists. Overwrite it, rename the import, or cancel?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext)
+                .pop(_SkillConflictChoice.rename),
+            child: const Text('Rename'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext)
+                .pop(_SkillConflictChoice.overwrite),
+            child: const Text('Overwrite'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _askRename(String suggested) async {
+    final controller = TextEditingController(text: suggested);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Rename imported skill'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Skill name',
+            helperText: 'Lower-case letters, numbers, and hyphens.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = _normalizeSkillName(controller.text);
+              if (value.isEmpty) return;
+              Navigator.of(dialogContext).pop(value);
+            },
+            child: const Text('Import'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result;
+  }
+
+  String _normalizeSkillName(String value) {
+    return value
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
   }
 
   void _scanDirectoryRecursively(
@@ -149,6 +304,12 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       appBar: AppBar(
         title: const Text('Workspace & Skills'),
         actions: [
+          if (_activeTab == 1)
+            IconButton(
+              icon: const Icon(Icons.library_add_outlined),
+              tooltip: 'Import Skill',
+              onPressed: _importSkill,
+            ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Rescan Workspace',
@@ -904,3 +1065,7 @@ class WorkspaceFileEntry {
     this.sizeBytes = 0,
   });
 }
+
+/// User choice when an imported skill name already exists.
+enum _SkillConflictChoice { overwrite, rename }
+
