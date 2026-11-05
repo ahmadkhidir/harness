@@ -7,6 +7,7 @@ import '../../core/routes/app_routes.dart';
 import '../../core/utils/file_system_manager.dart';
 import '../../data/services/model_download_service.dart';
 import '../../data/services/skills_service.dart';
+import '../../data/services/timer_service.dart';
 import '../bloc/harness_session_bloc.dart';
 import '../bloc/harness_session_event.dart';
 import '../bloc/harness_session_state.dart';
@@ -19,6 +20,7 @@ import '../widgets/message_bubble.dart';
 import '../widgets/skill_picker_sheet.dart';
 import '../widgets/storage_picker_sheet.dart';
 import '../widgets/system_call_pill.dart';
+import '../widgets/timer_strip.dart';
 import '../widgets/tool_calls_bottom_sheet.dart';
 
 /// The primary interaction screen where users input tasks, monitor parallel tool runs,
@@ -560,6 +562,11 @@ class _ChatScreenState extends State<ChatScreen> {
                         },
                       ),
               ),
+              if (sessionState.sessionId != null)
+                TimerStrip(
+                  sessionId: sessionState.sessionId!,
+                  timerService: TimerService.instance,
+                ),
               const Divider(height: 1),
               // Bottom pinned prompt input bar
               SafeArea(
