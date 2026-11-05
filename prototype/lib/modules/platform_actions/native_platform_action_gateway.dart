@@ -5,6 +5,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../data/services/notification_tap_router.dart';
 import 'platform_action_gateway.dart';
 
 /// Production [PlatformActionGateway] backed by operating-system capabilities.
@@ -155,7 +156,12 @@ class NativePlatformActionGateway implements PlatformActionGateway {
       macOS: DarwinInitializationSettings(),
     );
 
-    await _notifications.initialize(settings: settings);
+    await _notifications.initialize(
+      settings: settings,
+      onDidReceiveNotificationResponse: (response) {
+        NotificationTapRouter.route(response.payload);
+      },
+    );
     _initialized = true;
   }
 

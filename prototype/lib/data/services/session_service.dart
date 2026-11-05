@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import '../../core/models/context_line.dart';
+import '../../core/models/scheduled_timer.dart';
 import '../../core/models/session.dart';
 import '../../core/models/turn.dart';
 import '../../core/utils/file_system_manager.dart';
@@ -75,6 +76,7 @@ class SessionService {
     final payload = {
       'session': session.toJson(),
       'turns': <Map<String, dynamic>>[],
+      'timers': <Map<String, dynamic>>[],
     };
 
     _atomicWriteJson(turnsFile, payload);
@@ -251,9 +253,11 @@ class SessionService {
       contextSizeBytes: contextFile.existsSync() ? contextFile.lengthSync() : 0,
     );
 
+    final timers = await loadTimers(sessionId);
     final payload = {
       'session': updatedSession.toJson(),
       'turns': updatedTurns.map((t) => t.toJson()).toList(),
+      'timers': timers.map((timer) => timer.toJson()).toList(),
     };
 
     _atomicWriteJson(turnsFile, payload);
@@ -291,9 +295,11 @@ class SessionService {
           contextFile.existsSync() ? contextFile.lengthSync() : 0,
     );
 
+    final timers = await loadTimers(sessionId);
     _atomicWriteJson(fs.sessionTurnsFile(sessionId), {
       'session': updatedSession.toJson(),
       'turns': updatedTurns.map((item) => item.toJson()).toList(),
+      'timers': timers.map((timer) => timer.toJson()).toList(),
     });
     fs.activeSessionId = sessionId;
   }
@@ -328,11 +334,75 @@ class SessionService {
       contextSizeBytes: contextFile.lengthSync(),
     );
 
+    final timers = await loadTimers(sessionId);
     _atomicWriteJson(fs.sessionTurnsFile(sessionId), {
       'session': updatedSession.toJson(),
       'turns': turns.map((item) => item.toJson()).toList(),
+      'timers': timers.map((timer) => timer.toJson()).toList(),
     });
     fs.activeSessionId = sessionId;
+  }
+
+  /// Loads the scheduled timers stored in the session envelope.
+  Future<List<ScheduledTimer>> loadTimers(String sessionId) async {
+    final turnsFile = fs.sessionTurnsFile(sessionId);
+    if (!turnsFile.existsSync()) return [];
+
+    try {
+      final decoded = json.decode(turnsFile.readAsStringSync());
+      if (decoded is Map && decoded['timers'] is List) {
+        return (decoded['timers'] as List)
+            .whereType<Map>()
+            .map((item) => ScheduledTimer.fromJson(
+                  Map<String, dynamic>.from(item),
+                ))
+            .where((timer) => timer.id.isNotEmpty && timer.prompt.isNotEmpty)
+            .toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  /// Persists the complete timer list for a session.
+  Future<void> saveTimers(
+    String sessionId,
+    List<ScheduledTimer> timers,
+  ) async {
+    final turns = await loadTurns(sessionId);
+    final currentSession = (await getSession(sessionId)) ??
+        Session(
+          id: sessionId,
+          title: 'Session $sessionId',
+          createdAt: DateTime.now().toUtc(),
+          updatedAt: DateTime.now().toUtc(),
+          totalTurns: turns.length,
+          contextSizeBytes: 0,
+        );
+
+    _atomicWriteJson(fs.sessionTurnsFile(sessionId), {
+      'session': currentSession.toJson(),
+      'turns': turns.map((turn) => turn.toJson()).toList(),
+      'timers': timers.map((timer) => timer.toJson()).toList(),
+    });
+  }
+
+  /// Adds or replaces a timer by ID.
+  Future<void> upsertTimer(String sessionId, ScheduledTimer timer) async {
+    final timers = await loadTimers(sessionId);
+    final index = timers.indexWhere((item) => item.id == timer.id);
+    if (index == -1) {
+      timers.add(timer);
+    } else {
+      timers[index] = timer;
+    }
+    await saveTimers(sessionId, timers);
+  }
+
+  /// Removes a timer by ID.
+  Future<void> removeTimer(String sessionId, String timerId) async {
+    final timers = await loadTimers(sessionId)
+      ..removeWhere((timer) => timer.id == timerId);
+    await saveTimers(sessionId, timers);
   }
 
   /// Appends a `USER:` line after a prompt has been dispatched to the model.
@@ -437,9 +507,11 @@ class SessionService {
     );
 
     final turns = await loadTurns(sessionId);
+    final timers = await loadTimers(sessionId);
     final payload = {
       'session': updatedSession.toJson(),
       'turns': turns.map((t) => t.toJson()).toList(),
+      'timers': timers.map((timer) => timer.toJson()).toList(),
     };
 
     _atomicWriteJson(turnsFile, payload);
@@ -561,9 +633,11 @@ class SessionService {
       );
 
       final turns = await loadTurns(sessionId);
+      final timers = await loadTimers(sessionId);
       final payload = {
         'session': updatedSession.toJson(),
         'turns': turns.map((t) => t.toJson()).toList(),
+        'timers': timers.map((timer) => timer.toJson()).toList(),
       };
 
       final turnsFile = fs.sessionTurnsFile(sessionId);

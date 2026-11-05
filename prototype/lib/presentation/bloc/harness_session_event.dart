@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import '../../core/engine/engine_events.dart';
+import '../../core/models/scheduled_timer.dart';
 
 /// Base event class for [HarnessSessionBloc].
 abstract class HarnessSessionEvent extends Equatable {
@@ -64,6 +65,17 @@ class HandleA2UIActionEvent extends HarnessSessionEvent {
 
   @override
   List<Object?> get props => [action, dataModel];
+}
+
+/// Dispatched when a scheduled timer becomes due and should run its prompt.
+class RunScheduledTimerEvent extends HarnessSessionEvent {
+  /// The due timer.
+  final ScheduledTimer timer;
+
+  const RunScheduledTimerEvent(this.timer);
+
+  @override
+  List<Object?> get props => [timer];
 }
 
 /// Dispatched internally as the engine stream yields progressive execution events.

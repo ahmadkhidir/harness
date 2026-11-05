@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
@@ -12,16 +14,20 @@ import 'core/utils/file_system_manager.dart';
 import 'data/database/app_database.dart';
 import 'data/secure_storage/key_storage_service.dart';
 import 'data/services/bridge_settings_service.dart';
+import 'data/services/notification_tap_router.dart';
 import 'data/services/session_service.dart';
+import 'data/services/timer_service.dart';
 import 'modules/a2ui/a2ui_module.dart';
 import 'modules/platform_actions/a2ui_event_router.dart';
 import 'modules/platform_actions/platform_actions_module.dart';
 import 'modules/runner/runner_module.dart';
 import 'modules/skills/skills_module.dart';
 import 'modules/storage/storage_module.dart';
+import 'modules/timers/timer_module.dart';
 import 'modules/transfer/transfer_module.dart';
 import 'modules/web/web_module.dart';
 import 'presentation/bloc/harness_session_bloc.dart';
+import 'presentation/bloc/harness_session_event.dart';
 import 'presentation/bloc/model_switcher_bloc.dart';
 import 'presentation/bloc/model_switcher_event.dart';
 import 'presentation/screens/chat_screen.dart';
@@ -45,6 +51,8 @@ void main() async {
   AppDatabase database;
   KeyStorageService keyStorage;
   HarnessEngine engine;
+  SessionService sessionService;
+  TimerService timerService;
 
   try {
     database = AppDatabase();
@@ -83,6 +91,12 @@ void main() async {
       allowedHostsProvider: bridgeSettings.getAllowedHosts,
       fileSystemProvider: () => HarnessFileSystem.instance,
     ));
+    sessionService = SessionService(
+      database: database,
+      fileSystem: HarnessFileSystem.instance,
+    );
+    timerService = TimerService(sessionService: sessionService);
+    router.registerModule(TimerModule(timerService: timerService));
     final contextBuilder = ContextBuilder();
     engine = HarnessEngine(
       router: router,
@@ -112,6 +126,12 @@ void main() async {
       allowedHostsProvider: bridgeSettings.getAllowedHosts,
       fileSystemProvider: () => HarnessFileSystem.instance,
     ));
+    sessionService = SessionService(
+      database: database,
+      fileSystem: HarnessFileSystem.instance,
+    );
+    timerService = TimerService(sessionService: sessionService);
+    router.registerModule(TimerModule(timerService: timerService));
     final contextBuilder = ContextBuilder();
     final modelProvider = ModelProviderFactory.create(
       config: ProviderConfig(
@@ -133,6 +153,8 @@ void main() async {
     database: database,
     keyStorage: keyStorage,
     engine: engine,
+    sessionService: sessionService,
+    timerService: timerService,
   ));
 }
 
@@ -144,12 +166,16 @@ class HarnessApp extends StatefulWidget {
   final AppDatabase? database;
   final KeyStorageService? keyStorage;
   final HarnessEngine? engine;
+  final SessionService? sessionService;
+  final TimerService? timerService;
 
   const HarnessApp({
     super.key,
     this.database,
     this.keyStorage,
     this.engine,
+    this.sessionService,
+    this.timerService,
   });
 
   @override
@@ -160,6 +186,8 @@ class _HarnessAppState extends State<HarnessApp> {
   late final AppDatabase _database;
   late final KeyStorageService _keyStorage;
   late final HarnessEngine _engine;
+  late final SessionService _sessionService;
+  late final TimerService _timerService;
   late final ModelSwitcherBloc _modelSwitcherBloc;
   late final HarnessSessionBloc _harnessSessionBloc;
   late final A2UIEventRouter _a2uiEventRouter;
@@ -169,6 +197,13 @@ class _HarnessAppState extends State<HarnessApp> {
     super.initState();
     _database = widget.database ?? AppDatabase.inMemory();
     _keyStorage = widget.keyStorage ?? KeyStorageService(useInMemoryFallback: true);
+    _sessionService = widget.sessionService ??
+        SessionService(
+          database: _database,
+          fileSystem: HarnessFileSystem.instance,
+        );
+    _timerService =
+        widget.timerService ?? TimerService(sessionService: _sessionService);
 
     if (widget.engine != null) {
       _engine = widget.engine!;
@@ -193,6 +228,7 @@ class _HarnessAppState extends State<HarnessApp> {
         allowedHostsProvider: bridgeSettings.getAllowedHosts,
         fileSystemProvider: () => HarnessFileSystem.instance,
       ));
+      router.registerModule(TimerModule(timerService: _timerService));
       final contextBuilder = ContextBuilder();
       final defaultProvider = ModelProviderFactory.create(
         config: ProviderConfig(
@@ -223,16 +259,35 @@ class _HarnessAppState extends State<HarnessApp> {
     _harnessSessionBloc = HarnessSessionBloc(
       engine: _engine,
       keyStorage: _keyStorage,
-      sessionService: SessionService(
-        database: _database,
-        fileSystem: HarnessFileSystem.instance,
-      ),
+      sessionService: _sessionService,
+      timerService: _timerService,
       a2uiEventRouter: _a2uiEventRouter,
     );
+
+    NotificationTapRouter.onTap = (payload) {
+      if (payload == null || payload.isEmpty) return;
+      try {
+        final decoded = json.decode(payload);
+        if (decoded is Map && decoded['sessionId'] is String) {
+          _harnessSessionBloc
+              .add(SwitchSessionEvent(decoded['sessionId'] as String));
+        }
+      } catch (_) {}
+    };
+
+    _timerService.start(
+      onDue: (timer) =>
+          _harnessSessionBloc.add(RunScheduledTimerEvent(timer)),
+      onNotificationTap: (sessionId) =>
+          _harnessSessionBloc.add(SwitchSessionEvent(sessionId)),
+    );
+    _timerService.restoreAll();
   }
 
   @override
   void dispose() {
+    NotificationTapRouter.onTap = null;
+    _timerService.dispose();
     _modelSwitcherBloc.close();
     _harnessSessionBloc.close();
     super.dispose();

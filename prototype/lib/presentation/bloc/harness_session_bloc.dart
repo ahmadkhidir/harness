@@ -2,10 +2,12 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/engine/engine_events.dart';
 import '../../core/engine/harness_engine.dart';
+import '../../core/models/scheduled_timer.dart';
 import '../../core/models/system_response.dart';
 import '../../core/models/turn.dart';
 import '../../data/secure_storage/key_storage_service.dart';
 import '../../data/services/session_service.dart';
+import '../../data/services/timer_service.dart';
 import '../../modules/platform_actions/a2ui_event_router.dart';
 import 'harness_session_event.dart';
 import 'harness_session_state.dart';
@@ -24,6 +26,9 @@ class HarnessSessionBloc
   final KeyStorageService? keyStorage;
   final SessionService? sessionService;
 
+  /// Scheduled self-prompt timers (FEAT-010).
+  final TimerService? timerService;
+
   /// Routes A2UI button taps to native platform actions or new user turns.
   final A2UIEventRouter a2uiEventRouter;
 
@@ -35,16 +40,21 @@ class HarnessSessionBloc
   /// Session receiving [_pendingUserContextPrompt].
   String? _pendingUserContextSessionId;
 
+  /// Timer whose self-prompt is currently executing.
+  ScheduledTimer? _activeTimer;
+
   HarnessSessionBloc({
     required this.engine,
     this.keyStorage,
     this.sessionService,
+    this.timerService,
     A2UIEventRouter? a2uiEventRouter,
   })  : a2uiEventRouter = a2uiEventRouter ?? const A2UIEventRouter(),
         super(const HarnessSessionInitial()) {
     on<InitializeSessionEvent>(_onInitializeSession);
     on<SwitchSessionEvent>(_onSwitchSession);
     on<SubmitUserPromptEvent>(_onSubmitUserPrompt);
+    on<RunScheduledTimerEvent>(_onRunScheduledTimer);
     on<HandleA2UIActionEvent>(_onHandleA2UIAction);
     on<SessionEngineProgressReceived>(_onEngineProgressReceived);
     on<CancelActiveTurnEvent>(_onCancelActiveTurn);
@@ -69,6 +79,7 @@ class HarnessSessionBloc
       existingTurns = await sessionService!.loadTurns(targetId);
     }
     emit(HarnessSessionReady(sessionId: targetId, turns: existingTurns));
+    await _drainTimers(targetId, emit);
   }
 
   Future<void> _onSwitchSession(
@@ -77,6 +88,11 @@ class HarnessSessionBloc
   ) async {
     await _engineSubscription?.cancel();
     _engineSubscription = null;
+    final interruptedTimer = _activeTimer;
+    _activeTimer = null;
+    if (interruptedTimer != null) {
+      await timerService?.markCompleted(interruptedTimer);
+    }
 
     if (sessionService != null) {
       await sessionService!.setActiveSessionId(event.sessionId);
@@ -85,6 +101,7 @@ class HarnessSessionBloc
     } else {
       emit(HarnessSessionReady(sessionId: event.sessionId, turns: const []));
     }
+    await _drainTimers(event.sessionId, emit);
   }
 
   Future<void> _onSubmitUserPrompt(
@@ -92,6 +109,41 @@ class HarnessSessionBloc
     Emitter<HarnessSessionState> emit,
   ) async {
     await _startPrompt(event.prompt, event.apiKey, emit);
+  }
+
+  Future<void> _onRunScheduledTimer(
+    RunScheduledTimerEvent event,
+    Emitter<HarnessSessionState> emit,
+  ) async {
+    if (state.sessionId != event.timer.sessionId) return;
+    if (state is HarnessTurnExecuting) return;
+    await _startPrompt(
+      event.timer.prompt,
+      null,
+      emit,
+      showUserTurn: false,
+      timer: event.timer,
+    );
+  }
+
+  /// Starts the next queued timer for [sessionId] when the session is idle.
+  Future<void> _drainTimers(
+    String sessionId,
+    Emitter<HarnessSessionState> emit,
+  ) async {
+    final service = timerService;
+    if (service == null || state is HarnessTurnExecuting) return;
+
+    final queued = await service.queued(sessionId);
+    if (queued.isEmpty) return;
+
+    await _startPrompt(
+      queued.first.prompt,
+      null,
+      emit,
+      showUserTurn: false,
+      timer: queued.first,
+    );
   }
 
   /// Starts an engine turn for [prompt].
@@ -104,6 +156,8 @@ class HarnessSessionBloc
     String? explicitApiKey,
     Emitter<HarnessSessionState> emit, {
     String? actionLabel,
+    bool showUserTurn = true,
+    ScheduledTimer? timer,
   }) async {
     final currentSessionId =
         state.sessionId ?? 'sess_${DateTime.now().millisecondsSinceEpoch}';
@@ -119,30 +173,39 @@ class HarnessSessionBloc
           )
         : '';
 
-    final userTurn = actionLabel != null
-        ? Turn(
-            id: 'turn_action_${DateTime.now().millisecondsSinceEpoch}',
-            sessionId: currentSessionId,
-            timestamp: DateTime.now().toUtc(),
-            sender: 'user',
-            contentType: 'action',
-            text: actionLabel,
-          )
-        : Turn(
-            id: 'turn_user_${DateTime.now().millisecondsSinceEpoch}',
-            sessionId: currentSessionId,
-            timestamp: DateTime.now().toUtc(),
-            sender: 'user',
-            contentType: 'text',
-            text: prompt,
-          );
+    final userTurn = !showUserTurn
+        ? null
+        : actionLabel != null
+            ? Turn(
+                id: 'turn_action_${DateTime.now().millisecondsSinceEpoch}',
+                sessionId: currentSessionId,
+                timestamp: DateTime.now().toUtc(),
+                sender: 'user',
+                contentType: 'action',
+                text: actionLabel,
+              )
+            : Turn(
+                id: 'turn_user_${DateTime.now().millisecondsSinceEpoch}',
+                sessionId: currentSessionId,
+                timestamp: DateTime.now().toUtc(),
+                sender: 'user',
+                contentType: 'text',
+                text: prompt,
+              );
 
     // UI log only. The matching USER line is appended after dispatch.
-    if (sessionService != null) {
+    if (userTurn != null && sessionService != null) {
       await sessionService!.appendUiTurn(currentSessionId, userTurn);
     }
 
-    final updatedTurns = List<Turn>.from(priorTurns)..add(userTurn);
+    final updatedTurns = userTurn == null
+        ? priorTurns
+        : (List<Turn>.from(priorTurns)..add(userTurn));
+
+    if (timer != null) {
+      _activeTimer = timer;
+      await timerService?.markRunning(timer);
+    }
 
     emit(HarnessTurnExecuting(
       sessionId: currentSessionId,
@@ -371,6 +434,12 @@ class HarnessSessionBloc
                 )
               : progress.turn);
 
+      final completedTimer = _activeTimer;
+      _activeTimer = null;
+      if (completedTimer != null) {
+        await timerService?.markCompleted(completedTimer);
+      }
+
       if (sessionService != null) {
         await sessionService!.appendTurn(currentSessionId, turnWithTools);
         await sessionService!.checkAndCompact(
@@ -384,7 +453,13 @@ class HarnessSessionBloc
         sessionId: currentSessionId,
         turns: updatedTurns,
       ));
+      await _drainTimers(currentSessionId, emit);
     } else if (progress is EngineErrorOccurred) {
+      final failedTimer = _activeTimer;
+      _activeTimer = null;
+      if (failedTimer != null) {
+        await timerService?.markCompleted(failedTimer);
+      }
       final msg = progress.message;
       final isAuth = msg.toLowerCase().contains('api key') ||
           msg.toLowerCase().contains('authentication') ||
@@ -410,6 +485,11 @@ class HarnessSessionBloc
   ) async {
     await _engineSubscription?.cancel();
     _engineSubscription = null;
+    final cancelledTimer = _activeTimer;
+    _activeTimer = null;
+    if (cancelledTimer != null) {
+      await timerService?.markCompleted(cancelledTimer);
+    }
     emit(HarnessSessionReady(
       sessionId: state.sessionId ?? 'sess_default',
       turns: state.turns,
