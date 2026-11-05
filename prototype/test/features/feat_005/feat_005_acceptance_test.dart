@@ -137,7 +137,7 @@ void main() {
       await bloc.close();
     });
 
-    test('Criterion 2: Agent can execute grep(path: "context.txt", pattern: "...") to search past dialogue', () async {
+    test('Criterion 2: context.txt is internal session memory and not exposed through storage tools', () async {
       final session = await sessionService.createSession(title: 'Grep Context Test');
       await sessionService.appendTurn(
         session.id,
@@ -162,21 +162,19 @@ void main() {
         ),
       );
 
-      // Execute grep directly on context.txt
+      // StorageModule no longer aliases context.txt.
       storage.activeSessionId = session.id;
       final grepResult = await storage.executeCommand('grep', {
         'path': 'context.txt',
         'pattern': '8088',
       });
 
-      expect(grepResult.isSuccess, isTrue);
-      final matches = grepResult.data as List;
-      expect(matches.length, equals(2));
-      expect(matches[0]['file'], equals('context.txt'));
-      expect(matches[0]['line'], equals(1));
-      expect(matches[0]['content'], contains('8088'));
-      expect(matches[1]['file'], equals('context.txt'));
-      expect(matches[1]['line'], equals(2));
+      expect(grepResult.isError, isTrue);
+
+      // The transcript remains available to the session layer for model injection.
+      final transcript = await sessionService.readContextTranscript(session.id);
+      expect(transcript, contains('USER: The server port is configured to 8088.'));
+      expect(transcript, contains('AGENT: Acknowledged.'));
     });
 
     test('Criterion 3 & 4: Compaction rewrites context.txt with SUMMARY: while chat UI preserves full uncompacted history from turns.json', () async {

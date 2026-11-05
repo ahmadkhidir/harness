@@ -49,17 +49,6 @@ class StorageModule extends HarnessModule {
 
   File _resolveVirtualFile(String virtualPath) {
     _checkSiblingSessionAccess(virtualPath);
-    final clean = virtualPath.replaceAll('\\', '/').trim();
-    if (clean == 'context.txt' || clean == 'primary/context.txt') {
-      final sessId = effectiveSessionId;
-      if (sessId != null) {
-        return fs.sessionContextFile(sessId);
-      }
-    }
-    if (effectiveSessionId != null &&
-        clean == 'sessions/$effectiveSessionId/context.txt') {
-      return fs.sessionContextFile(effectiveSessionId!);
-    }
     return fs.mounts.resolveVirtualFile(virtualPath);
   }
 
@@ -374,26 +363,13 @@ class StorageModule extends HarnessModule {
 
     final filesToSearch = <File>[];
 
-    final cleanTarget = targetPath.replaceAll('\\', '/').trim();
-    if (cleanTarget == 'context.txt' || cleanTarget == 'primary/context.txt') {
-      final sessId = effectiveSessionId;
-      if (sessId != null) {
-        final ctxFile = fs.sessionContextFile(sessId);
-        if (ctxFile.existsSync()) {
-          filesToSearch.add(ctxFile);
-        }
+    // Check if target is a file or a directory.
+    try {
+      final possibleFile = _resolveVirtualFile(targetPath);
+      if (possibleFile.existsSync() && possibleFile is! Directory) {
+        filesToSearch.add(possibleFile);
       }
-    }
-
-    // Check if target is a file or a directory
-    if (filesToSearch.isEmpty) {
-      try {
-        final possibleFile = _resolveVirtualFile(targetPath);
-        if (possibleFile.existsSync() && possibleFile is! Directory) {
-          filesToSearch.add(possibleFile);
-        }
-      } catch (_) {}
-    }
+    } catch (_) {}
 
     if (filesToSearch.isEmpty) {
       final dir = _resolveVirtualDir(targetPath);
@@ -416,9 +392,7 @@ class StorageModule extends HarnessModule {
     for (final file in filesToSearch) {
       try {
         final lines = file.readAsLinesSync();
-        final isContextFile = effectiveSessionId != null &&
-            file.path == fs.sessionContextFile(effectiveSessionId!).path;
-        final vPath = isContextFile ? 'context.txt' : fs.mounts.toVirtualPath(file);
+        final vPath = fs.mounts.toVirtualPath(file);
 
         for (int i = 0; i < lines.length; i++) {
           final line = lines[i];

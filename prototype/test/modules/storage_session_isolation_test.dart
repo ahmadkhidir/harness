@@ -33,7 +33,7 @@ void main() {
     } catch (_) {}
   });
 
-  test('grep searches context.txt of active session and returns matching lines with virtual path', () async {
+  test('grep cannot reach the internal session context.txt', () async {
     final session = await sessionService.createSession(title: 'History Query Test');
     await sessionService.appendTurn(
       session.id,
@@ -66,18 +66,10 @@ void main() {
       'pattern': 'saffron',
     });
 
-    expect(grepResponse.isSuccess, isTrue);
-    final data = grepResponse.data as List;
-    expect(data.length, equals(2));
-    expect(data[0]['file'], equals('context.txt'));
-    expect(data[0]['line'], equals(1));
-    expect(data[0]['content'], contains('USER: My secret recipe includes saffron'));
-    expect(data[1]['file'], equals('context.txt'));
-    expect(data[1]['line'], equals(2));
-    expect(data[1]['content'], contains('AGENT: I have noted that your secret recipe'));
+    expect(grepResponse.isError, isTrue);
   });
 
-  test('read_file reads active session context.txt with line range', () async {
+  test('read_file cannot reach the internal session context.txt', () async {
     final session = await sessionService.createSession(title: 'Read Context Test');
     await sessionService.appendTurn(
       session.id,
@@ -110,8 +102,7 @@ void main() {
       'end_line': 2,
     });
 
-    expect(readResponse.isSuccess, isTrue);
-    expect(readResponse.data, equals('AGENT: Line 2 text'));
+    expect(readResponse.isError, isTrue);
   });
 
   test('Strict session isolation: Sibling session directory access is blocked', () async {

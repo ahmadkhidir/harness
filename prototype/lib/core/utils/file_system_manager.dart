@@ -311,10 +311,6 @@ class VirtualMountTable {
         return '${entry.key}/$normalized';
       }
     }
-    // If entity is context.txt from a session, represent as virtual 'context.txt'
-    if (p.basename(entity.path) == 'context.txt') {
-      return 'context.txt';
-    }
     // Fallback: if not within any mount, return just the basename under primary
     return 'primary/${p.basename(entity.path)}';
   }
