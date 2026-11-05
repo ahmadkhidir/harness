@@ -260,16 +260,46 @@ class SessionService {
     fs.activeSessionId = sessionId;
   }
 
-  /// Records an interface selection as a visible action turn.
+  /// Appends a turn to `turns.json` (UI) without touching `context.txt`.
   ///
-  /// `turns.json` receives [actionTurn] (content type `action`, human-readable
-  /// label), while `context.txt` receives the full [modelPrompt] so the model
-  /// keeps the structured payload without the raw text appearing in chat.
-  Future<void> appendActionTurn(
-    String sessionId,
-    Turn actionTurn,
-    String modelPrompt,
-  ) async {
+  /// User prompts use this before dispatch; their context line is written after
+  /// the model request starts.
+  Future<void> appendUiTurn(String sessionId, Turn turn) async {
+    final sessionDir = fs.sessionDir(sessionId);
+    if (!sessionDir.existsSync()) {
+      sessionDir.createSync(recursive: true);
+    }
+
+    final existingTurns = await loadTurns(sessionId);
+    final updatedTurns = List<Turn>.from(existingTurns)..add(turn);
+    final contextFile = fs.sessionContextFile(sessionId);
+
+    final currentSession = (await getSession(sessionId)) ??
+        Session(
+          id: sessionId,
+          title: 'Session $sessionId',
+          createdAt: turn.timestamp.toUtc(),
+          updatedAt: turn.timestamp.toUtc(),
+          totalTurns: 0,
+          contextSizeBytes: 0,
+        );
+
+    final updatedSession = currentSession.copyWith(
+      totalTurns: updatedTurns.length,
+      updatedAt: turn.timestamp.toUtc(),
+      contextSizeBytes:
+          contextFile.existsSync() ? contextFile.lengthSync() : 0,
+    );
+
+    _atomicWriteJson(fs.sessionTurnsFile(sessionId), {
+      'session': updatedSession.toJson(),
+      'turns': updatedTurns.map((item) => item.toJson()).toList(),
+    });
+    fs.activeSessionId = sessionId;
+  }
+
+  /// Appends a single line to `context.txt` and refreshes session metadata.
+  Future<void> appendContextLine(String sessionId, ContextLine line) async {
     final sessionDir = fs.sessionDir(sessionId);
     if (!sessionDir.existsSync()) {
       sessionDir.createSync(recursive: true);
@@ -277,36 +307,117 @@ class SessionService {
 
     final contextFile = fs.sessionContextFile(sessionId);
     contextFile.writeAsStringSync(
-      ContextLine(type: ContextLineType.user, content: modelPrompt).format(),
+      line.format(),
       mode: FileMode.append,
       flush: true,
     );
 
-    final existingTurns = await loadTurns(sessionId);
-    final updatedTurns = List<Turn>.from(existingTurns)..add(actionTurn);
-
+    final turns = await loadTurns(sessionId);
     final currentSession = (await getSession(sessionId)) ??
         Session(
           id: sessionId,
           title: 'Session $sessionId',
-          createdAt: actionTurn.timestamp.toUtc(),
-          updatedAt: actionTurn.timestamp.toUtc(),
-          totalTurns: 0,
+          createdAt: DateTime.now().toUtc(),
+          updatedAt: DateTime.now().toUtc(),
+          totalTurns: turns.length,
           contextSizeBytes: 0,
         );
 
     final updatedSession = currentSession.copyWith(
-      totalTurns: updatedTurns.length,
-      updatedAt: actionTurn.timestamp.toUtc(),
-      contextSizeBytes:
-          contextFile.existsSync() ? contextFile.lengthSync() : 0,
+      updatedAt: DateTime.now().toUtc(),
+      contextSizeBytes: contextFile.lengthSync(),
     );
 
     _atomicWriteJson(fs.sessionTurnsFile(sessionId), {
       'session': updatedSession.toJson(),
-      'turns': updatedTurns.map((turn) => turn.toJson()).toList(),
+      'turns': turns.map((item) => item.toJson()).toList(),
     });
     fs.activeSessionId = sessionId;
+  }
+
+  /// Appends a `USER:` line after a prompt has been dispatched to the model.
+  Future<void> appendUserContextLine(String sessionId, String prompt) {
+    return appendContextLine(
+      sessionId,
+      ContextLine(type: ContextLineType.user, content: prompt),
+    );
+  }
+
+  /// Appends a `TOOL:` line describing a completed tool call.
+  ///
+  /// Parameters, errors, and outputs are truncated so one verbose tool result
+  /// cannot dominate the transcript that is sent on the next turn.
+  Future<void> appendToolObservation(
+    String sessionId, {
+    required String command,
+    required Map<String, dynamic> parameters,
+    required bool success,
+    String? error,
+    dynamic output,
+  }) async {
+    var truncated = false;
+
+    String clip(String text, int max) {
+      if (text.length <= max) return text;
+      truncated = true;
+      return '${text.substring(0, max)}…';
+    }
+
+    String encode(dynamic value) {
+      if (value is String) return value;
+      try {
+        return jsonEncode(value);
+      } catch (_) {
+        return value.toString();
+      }
+    }
+
+    final encodedParameters = _encodeParameters(parameters);
+    final parameterValue = encodedParameters.length <= 1000
+        ? parameters
+        : clip(encodedParameters, 1000);
+
+    final payload = <String, dynamic>{
+      'command': command,
+      'parameters': parameterValue,
+      'status': success ? 'success' : 'error',
+      if (error != null) 'error': clip(error, 2000),
+      if (output != null) 'output': clip(encode(output), 3000),
+      'truncated': truncated,
+    };
+
+    await appendContextLine(
+      sessionId,
+      ContextLine(type: ContextLineType.tool, content: jsonEncode(payload)),
+    );
+  }
+
+  /// Reads the session transcript for model injection.
+  ///
+  /// When [excludePrompt] is supplied, a trailing `USER:` line that exactly
+  /// matches it is removed defensively (the current prompt is appended only
+  /// after dispatch in the normal flow).
+  Future<String> readContextTranscript(
+    String sessionId, {
+    String? excludePrompt,
+  }) async {
+    final contextFile = fs.sessionContextFile(sessionId);
+    if (!contextFile.existsSync()) return '';
+
+    final lines = contextFile
+        .readAsStringSync()
+        .split('\n')
+        .where((line) => line.trim().isNotEmpty)
+        .toList();
+
+    if (excludePrompt != null && lines.isNotEmpty) {
+      final expected = 'USER: ${ContextLine.sanitizeText(excludePrompt)}';
+      if (lines.last.trim() == expected) {
+        lines.removeLast();
+      }
+    }
+
+    return lines.join('\n').trim();
   }
 
   /// Renames an existing session, updating its title in `turns.json`.
@@ -353,13 +464,18 @@ class SessionService {
     }
   }
 
-  /// Checks if `context.txt` exceeds [compactionThresholdBytes] and triggers background compaction if needed.
-  Future<bool> checkAndCompact(String sessionId) async {
+  /// Checks if `context.txt` exceeds [thresholdBytes] (or the default
+  /// [compactionThresholdBytes]) and triggers background compaction if needed.
+  Future<bool> checkAndCompact(
+    String sessionId, {
+    int? thresholdBytes,
+  }) async {
     final contextFile = fs.sessionContextFile(sessionId);
     if (!contextFile.existsSync()) return false;
 
     final size = contextFile.lengthSync();
-    if (size > compactionThresholdBytes) {
+    final limit = thresholdBytes ?? compactionThresholdBytes;
+    if (size > limit) {
       return await compactSession(sessionId);
     }
     return false;
@@ -370,7 +486,7 @@ class SessionService {
   /// Retains the most recent [keepRecentLines] dialogue lines while summarizing older turns.
   /// Employs atomic file writing (`.tmp` file followed by rename) to guarantee resistance
   /// to app crashes or premature termination. Completely preserves `turns.json`.
-  Future<bool> compactSession(String sessionId, {int keepRecentLines = 10}) async {
+  Future<bool> compactSession(String sessionId, {int keepRecentLines = 20}) async {
     final contextFile = fs.sessionContextFile(sessionId);
     if (!contextFile.existsSync()) return false;
 
@@ -403,13 +519,21 @@ class SessionService {
               ? '${parsed.content.substring(0, 80)}...'
               : parsed.content;
           summaryPieces.add('Agent replied: "$snippet".');
+        } else if (parsed.type == ContextLineType.tool) {
+          summaryPieces.add(_summarizeToolLine(parsed.content));
         }
       } catch (_) {
         summaryPieces.add(line.trim());
       }
     }
 
-    final consolidatedSummary = summaryPieces.join(' ').trim();
+    var consolidatedSummary = summaryPieces.join(' ').trim();
+    // Repeated compaction must not let the SUMMARY line grow without bound.
+    const maxSummaryChars = 8000;
+    if (consolidatedSummary.length > maxSummaryChars) {
+      consolidatedSummary =
+          '…${consolidatedSummary.substring(consolidatedSummary.length - maxSummaryChars)}';
+    }
     final buffer = StringBuffer();
     buffer.write(ContextLine(
       type: ContextLineType.summary,
@@ -447,6 +571,35 @@ class SessionService {
     }
 
     return true;
+  }
+
+  /// Builds a short human-readable summary for a `TOOL:` line.
+  String _summarizeToolLine(String content) {
+    try {
+      final data = jsonDecode(content);
+      if (data is Map) {
+        final command = data['command'] ?? 'tool';
+        final status = data['status'] ?? 'finished';
+        final detail =
+            (data['error'] ?? data['output'] ?? '').toString().trim();
+        final snippet = detail.length > 120
+            ? '${detail.substring(0, 120)}...'
+            : detail;
+        return snippet.isEmpty
+            ? 'Tool $command $status.'
+            : 'Tool $command $status: $snippet.';
+      }
+    } catch (_) {}
+    return 'Tool: $content';
+  }
+
+  /// Encodes tool parameters as compact JSON for a `TOOL:` line.
+  String _encodeParameters(Map<String, dynamic> parameters) {
+    try {
+      return jsonEncode(parameters);
+    } catch (_) {
+      return parameters.toString();
+    }
   }
 
   /// Writes JSON content to [targetFile] atomically using a temporary file and atomic rename.

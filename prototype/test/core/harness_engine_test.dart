@@ -260,7 +260,7 @@ I need to query data first.
       expect(completedEvent.turn.toolCalls.first.status, equals('error'));
     });
 
-    test('injects sliding short-term conversational context (prior turns) into dialogue history', () async {
+    test('injects the session transcript and current request as one user message', () async {
       final contextProvider = ScriptedModelProvider(script: [
         '<system_call>{"command": "send_message", "parameters": {"text": "Answer referencing previous context"}}</system_call>',
       ]);
@@ -271,45 +271,28 @@ I need to query data first.
         modelProvider: contextProvider,
       );
 
-      final priorTurns = [
-        Turn(
-          id: 't1',
-          sessionId: 'sess_hist',
-          timestamp: DateTime.now().toUtc(),
-          sender: 'user',
-          contentType: 'text',
-          text: 'What is the capital of France?',
-        ),
-        Turn(
-          id: 't2',
-          sessionId: 'sess_hist',
-          timestamp: DateTime.now().toUtc(),
-          sender: 'agent',
-          contentType: 'text',
-          text: 'The capital of France is Paris.',
-        ),
-      ];
+      const transcript = 'USER: What is the capital of France?\n'
+          'AGENT: The capital of France is Paris.';
 
       await for (final _ in engine.executeTurn(
         userPrompt: 'What is its population?',
         sessionId: 'sess_hist',
-        recentHistory: priorTurns,
+        sessionTranscript: transcript,
       )) {}
 
       expect(contextProvider.recordedCalls.isNotEmpty, isTrue);
       final messagesSent = contextProvider.recordedCalls.first;
 
-      // Messages should contain:
-      // 1. user: What is the capital of France?
-      // 2. assistant: The capital of France is Paris.
-      // 3. user: What is its population?
-      expect(messagesSent.length, 3);
-      expect(messagesSent[0].role, equals('user'));
-      expect(messagesSent[0].content, equals('What is the capital of France?'));
-      expect(messagesSent[1].role, equals('assistant'));
-      expect(messagesSent[1].content, equals('The capital of France is Paris.'));
-      expect(messagesSent[2].role, equals('user'));
-      expect(messagesSent[2].content, equals('What is its population?'));
+      // A single user message carries the transcript and the current request;
+      // no assistant messages are replayed from turns.json.
+      expect(messagesSent.length, 1);
+      expect(messagesSent.single.role, 'user');
+      final content = messagesSent.single.content;
+      expect(content, contains('<session_transcript>'));
+      expect(content, contains('What is the capital of France?'));
+      expect(content, contains('The capital of France is Paris.'));
+      expect(content, contains('<current_request>'));
+      expect(content, contains('What is its population?'));
     });
 
     test('strictly prevents falling back to plain text send_message when UI is requested in context', () async {

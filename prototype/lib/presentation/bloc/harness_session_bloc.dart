@@ -29,6 +29,12 @@ class HarnessSessionBloc
 
   StreamSubscription<EngineProgressEvent>? _engineSubscription;
 
+  /// Prompt line waiting to be appended to `context.txt` after dispatch.
+  String? _pendingUserContextPrompt;
+
+  /// Session receiving [_pendingUserContextPrompt].
+  String? _pendingUserContextSessionId;
+
   HarnessSessionBloc({
     required this.engine,
     this.keyStorage,
@@ -103,45 +109,40 @@ class HarnessSessionBloc
         state.sessionId ?? 'sess_${DateTime.now().millisecondsSinceEpoch}';
 
     final priorTurns = List<Turn>.from(state.turns);
-    List<Turn> updatedTurns;
 
-    if (actionLabel != null) {
-      final actionTurn = Turn(
-        id: 'turn_action_${DateTime.now().millisecondsSinceEpoch}',
-        sessionId: currentSessionId,
-        timestamp: DateTime.now().toUtc(),
-        sender: 'user',
-        contentType: 'action',
-        text: actionLabel,
-      );
+    // Read conversation memory before the current prompt is appended. The
+    // context file is the only model-facing history; turns.json is UI-only.
+    final transcript = sessionService != null
+        ? await sessionService!.readContextTranscript(
+            currentSessionId,
+            excludePrompt: prompt,
+          )
+        : '';
 
-      if (sessionService != null) {
-        await sessionService!.appendActionTurn(
-          currentSessionId,
-          actionTurn,
-          prompt,
-        );
-      }
+    final userTurn = actionLabel != null
+        ? Turn(
+            id: 'turn_action_${DateTime.now().millisecondsSinceEpoch}',
+            sessionId: currentSessionId,
+            timestamp: DateTime.now().toUtc(),
+            sender: 'user',
+            contentType: 'action',
+            text: actionLabel,
+          )
+        : Turn(
+            id: 'turn_user_${DateTime.now().millisecondsSinceEpoch}',
+            sessionId: currentSessionId,
+            timestamp: DateTime.now().toUtc(),
+            sender: 'user',
+            contentType: 'text',
+            text: prompt,
+          );
 
-      updatedTurns = List<Turn>.from(priorTurns)..add(actionTurn);
-    } else {
-      // Optimistically record user prompt turn in the chat history.
-      final userTurn = Turn(
-        id: 'turn_user_${DateTime.now().millisecondsSinceEpoch}',
-        sessionId: currentSessionId,
-        timestamp: DateTime.now().toUtc(),
-        sender: 'user',
-        contentType: 'text',
-        text: prompt,
-      );
-
-      // Dual-write visible user prompts to disk.
-      if (sessionService != null) {
-        await sessionService!.appendTurn(currentSessionId, userTurn);
-      }
-
-      updatedTurns = List<Turn>.from(priorTurns)..add(userTurn);
+    // UI log only. The matching USER line is appended after dispatch.
+    if (sessionService != null) {
+      await sessionService!.appendUiTurn(currentSessionId, userTurn);
     }
+
+    final updatedTurns = List<Turn>.from(priorTurns)..add(userTurn);
 
     emit(HarnessTurnExecuting(
       sessionId: currentSessionId,
@@ -154,13 +155,16 @@ class HarnessSessionBloc
     final effectiveApiKey =
         explicitApiKey ?? await keyStorage?.getApiKey(activeProviderId);
 
+    _pendingUserContextPrompt = prompt;
+    _pendingUserContextSessionId = currentSessionId;
+
     await _engineSubscription?.cancel();
     _engineSubscription = engine
         .executeTurn(
           userPrompt: prompt,
           sessionId: currentSessionId,
           apiKey: effectiveApiKey,
-          recentHistory: priorTurns,
+          sessionTranscript: transcript,
         )
         .listen(
           (progressEvent) => add(SessionEngineProgressReceived(progressEvent)),
@@ -233,6 +237,23 @@ class HarnessSessionBloc
     }
   }
 
+  /// Computes the transcript budget used for compaction.
+  ///
+  /// Remote providers are assumed to have a 100k-token window; local models use
+  /// their configured window or 8k. The transcript targets 40% of the window
+  /// (about 3.5 chars per token), with caps that keep prompts sane.
+  int _contextBudgetBytes() {
+    final config = engine.modelProvider.config;
+    final isLocal = config.providerType == 'local_device';
+    final configuredWindow = config.extraConfig['contextWindowTokens'];
+    final tokens = configuredWindow is int && configuredWindow > 0
+        ? configuredWindow
+        : (isLocal ? 8192 : 100000);
+    final rawBytes = (tokens * 0.4 * 3.5).round();
+    final cap = isLocal ? 32000 : 200000;
+    return rawBytes.clamp(4000, cap);
+  }
+
   /// Converts an A2UI action identifier into a human-readable receipt label.
   String _actionLabel(String action) {
     final cleaned = action.replaceAll(RegExp(r'[_\-.]+'), ' ').trim();
@@ -267,7 +288,20 @@ class HarnessSessionBloc
     final currentSessionId = state.sessionId ?? 'sess_default';
     final currentTurns = state.turns;
 
-    if (progress is EngineModelGenerating) {
+    if (progress is EngineTurnStarted) {
+      final pendingPrompt = _pendingUserContextPrompt;
+      final pendingSession = _pendingUserContextSessionId;
+      if (pendingPrompt != null &&
+          pendingSession != null &&
+          sessionService != null) {
+        await sessionService!.appendUserContextLine(
+          pendingSession,
+          pendingPrompt,
+        );
+      }
+      _pendingUserContextPrompt = null;
+      _pendingUserContextSessionId = null;
+    } else if (progress is EngineModelGenerating) {
       if (state is HarnessTurnExecuting) {
         final currentExecuting = state as HarnessTurnExecuting;
         emit(HarnessTurnExecuting(
@@ -296,6 +330,17 @@ class HarnessSessionBloc
         statusMessage: 'Executing ${progress.call.command}...',
       ));
     } else if (progress is EngineSystemCallFinished) {
+      if (sessionService != null) {
+        await sessionService!.appendToolObservation(
+          currentSessionId,
+          command: progress.call.command,
+          parameters: progress.call.parameters,
+          success: progress.response.isSuccess,
+          error: progress.response.errorMessage,
+          output: progress.response.data,
+        );
+      }
+
       if (state is HarnessTurnExecuting) {
         final currentExecuting = state as HarnessTurnExecuting;
         final updatedIndicators = currentExecuting.toolIndicators.map((ind) {
@@ -328,7 +373,10 @@ class HarnessSessionBloc
 
       if (sessionService != null) {
         await sessionService!.appendTurn(currentSessionId, turnWithTools);
-        await sessionService!.checkAndCompact(currentSessionId);
+        await sessionService!.checkAndCompact(
+          currentSessionId,
+          thresholdBytes: _contextBudgetBytes(),
+        );
       }
 
       final updatedTurns = List<Turn>.from(currentTurns)..add(turnWithTools);

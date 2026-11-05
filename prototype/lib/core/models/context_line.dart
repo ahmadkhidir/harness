@@ -8,6 +8,9 @@ enum ContextLineType {
 
   /// Discrete single line representing an agent response or A2UI stub.
   agent,
+
+  /// Discrete single line describing a completed tool call and its outcome.
+  tool,
 }
 
 /// Represents a single discrete line within `context.txt`.
@@ -17,8 +20,8 @@ enum ContextLineType {
 /// reading (`read_file`) directly on mobile devices without parsing full JSON files.
 ///
 /// #### Rules from docs/Harness/schema.md:
-/// 1. Every entry begins with one of three uppercase prefix tags followed by a colon and a space:
-///    `SUMMARY: `, `USER: `, or `AGENT: `.
+/// 1. Every entry begins with one of four uppercase prefix tags followed by a colon and a space:
+///    `SUMMARY: `, `USER: `, `AGENT: `, or `TOOL: `.
 /// 2. If user or agent text contains line breaks, lines are sanitized (newline characters escaped as
 ///    `\n` or folded) to guarantee that each dialogue event occupies a single discrete line.
 /// 3. For turns where `send_a2ui` was dispatched without companion text, the entry is formatted as:
@@ -69,6 +72,8 @@ class ContextLine {
         return 'USER: $sanitized\n';
       case ContextLineType.agent:
         return 'AGENT: $sanitized\n';
+      case ContextLineType.tool:
+        return 'TOOL: $sanitized\n';
     }
   }
 
@@ -94,9 +99,14 @@ class ContextLine {
         type: ContextLineType.agent,
         content: desanitizeText(trimmed.substring(7)),
       );
+    } else if (trimmed.startsWith('TOOL: ')) {
+      return ContextLine(
+        type: ContextLineType.tool,
+        content: desanitizeText(trimmed.substring(6)),
+      );
     } else {
       throw FormatException(
-        'Invalid context.txt line format. Must start with "SUMMARY: ", "USER: ", or "AGENT: ": "$line"',
+        'Invalid context.txt line format. Must start with "SUMMARY: ", "USER: ", "AGENT: ", or "TOOL: ": "$line"',
       );
     }
   }
