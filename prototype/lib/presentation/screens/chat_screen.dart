@@ -497,15 +497,38 @@ class _ChatScreenState extends State<ChatScreen> {
           },
         ),
         actions: [
-          IconButton(
-            icon: const Icon(HarnessIcons.folder),
-            tooltip: 'Workspace & Skills',
-            onPressed: () => Navigator.pushNamed(context, AppRoutes.workspace),
-          ),
-          IconButton(
-            icon: const Icon(HarnessIcons.settings),
-            tooltip: 'Settings',
-            onPressed: () => Navigator.pushNamed(context, AppRoutes.settings),
+          PopupMenuButton<String>(
+            icon: const Icon(HarnessIcons.more),
+            tooltip: 'More',
+            onSelected: (value) {
+              if (value == 'workspace') {
+                Navigator.pushNamed(context, AppRoutes.workspace);
+              } else if (value == 'settings') {
+                Navigator.pushNamed(context, AppRoutes.settings);
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'workspace',
+                child: Row(
+                  children: [
+                    Icon(HarnessIcons.folder, size: HarnessSize.iconSm),
+                    SizedBox(width: HarnessSpace.sm),
+                    Flexible(child: Text('Workspace & Skills', overflow: TextOverflow.ellipsis)),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'settings',
+                child: Row(
+                  children: [
+                    Icon(HarnessIcons.settings, size: HarnessSize.iconSm),
+                    SizedBox(width: HarnessSpace.sm),
+                    Flexible(child: Text('Settings', overflow: TextOverflow.ellipsis)),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),

@@ -131,8 +131,7 @@ void main() {
     // Verify AppBar widgets
     expect(find.text('Harness'), findsOneWidget);
     expect(find.byIcon(HarnessIcons.sessions), findsOneWidget);
-    expect(find.byIcon(HarnessIcons.folder), findsOneWidget);
-    expect(find.byIcon(HarnessIcons.settings), findsOneWidget);
+    expect(find.byIcon(HarnessIcons.more), findsOneWidget);
 
     // Verify empty state is displayed when there are no turns
     expect(find.byType(EmptyState), findsOneWidget);
@@ -462,7 +461,9 @@ void main() {
     expect(find.byType(ChatScreen), findsOneWidget);
 
     // 2. Test Workspace navigation
-    await tester.tap(find.byIcon(HarnessIcons.folder));
+    await tester.tap(find.byIcon(HarnessIcons.more));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Workspace & Skills'));
     await tester.pumpAndSettle();
     expect(find.byType(PlaceholderScreen), findsOneWidget);
     expect(find.text('FEAT-003 & FEAT-004'), findsOneWidget);
@@ -473,7 +474,9 @@ void main() {
     expect(find.byType(ChatScreen), findsOneWidget);
 
     // 3. Test Settings navigation
-    await tester.tap(find.byIcon(HarnessIcons.settings));
+    await tester.tap(find.byIcon(HarnessIcons.more));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsScreen), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
