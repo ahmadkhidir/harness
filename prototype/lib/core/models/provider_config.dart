@@ -13,7 +13,7 @@ class ProviderConfig {
     'local_device',
   };
 
-  /// Unique stable key for this configuration entry, e.g. `gemini` or `ollama`.
+  /// Unique stable key for this configuration entry, e.g. `gemini` or `openai_compatible`.
   final String id;
 
   /// Underlying adapter driver type: must be one of [validProviderTypes].
@@ -25,7 +25,7 @@ class ProviderConfig {
   /// Target model identifier passed to the inference API, e.g. `gemini-2.0-flash` or `claude-3-7-sonnet`.
   final String modelName;
 
-  /// Base URL for OpenAI-compatible endpoints (Ollama, vLLM, DeepSeek, OpenCode).
+  /// Base URL for OpenAI-compatible endpoints (OpenCode, Ollama, vLLM, DeepSeek).
   /// Null for official cloud providers that use hardcoded standard API base URLs.
   final String? customEndpointUrl;
 

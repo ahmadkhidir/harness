@@ -1,8 +1,11 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
 import '../../core/models/on_device_model_spec.dart';
 import '../../core/models/provider_config.dart';
+import '../../core/models/turn.dart';
 import '../../core/routes/app_routes.dart';
 import '../../core/utils/file_system_manager.dart';
 import '../../data/services/model_download_service.dart';
@@ -14,14 +17,58 @@ import '../bloc/harness_session_state.dart';
 import '../bloc/model_switcher_bloc.dart';
 import '../bloc/model_switcher_event.dart';
 import '../bloc/model_switcher_state.dart';
-import '../widgets/empty_state.dart';
+import '../theme/brand_mark.dart';
+import '../theme/harness_colors.dart';
+import '../theme/harness_icons.dart';
+import '../theme/harness_tokens.dart';
 import '../utils/composer_tags.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/skill_picker_sheet.dart';
 import '../widgets/storage_picker_sheet.dart';
 import '../widgets/system_call_pill.dart';
 import '../widgets/timer_strip.dart';
 import '../widgets/tool_calls_bottom_sheet.dart';
+
+/// Maps each live `surfaceId` to the index of the turn that anchors it.
+///
+/// An A2UI surface is a single object keyed by ID. The first turn that
+/// introduces a `surfaceId` is its permanent slot in the chat stream; every
+/// later `updateComponents` / `updateDataModel` delivery for that ID mutates
+/// the surface in that same slot instead of adding another chat item. A later
+/// `createSurface` for the same ID (after a delete) moves the anchor to the
+/// re-creation turn.
+Map<String, int> _surfaceAnchorTurnIndices(List<Turn> turns) {
+  final anchors = <String, int>{};
+  for (var index = 0; index < turns.length; index++) {
+    final turn = turns[index];
+    final surfaceId = turn.a2uiSurfaceId;
+    if (surfaceId == null) continue;
+
+    // A createSurface starts a new surface lifecycle, so it re-anchors even if
+    // the same ID was used earlier. Updates keep the original anchor.
+    final createsSurface = _turnCreatesSurface(turn, surfaceId);
+    if (createsSurface || !anchors.containsKey(surfaceId)) {
+      anchors[surfaceId] = index;
+    }
+  }
+  return anchors;
+}
+
+/// True when [turn]'s recorded A2UI payload contains a `createSurface` for
+/// [surfaceId].
+bool _turnCreatesSurface(Turn turn, String surfaceId) {
+  final messages = turn.a2uiPayload?['messages'];
+  if (messages is! List) return false;
+  for (final message in messages) {
+    if (message is! Map) continue;
+    final create = message['createSurface'];
+    if (create is Map && create['surfaceId']?.toString() == surfaceId) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /// The primary interaction screen where users input tasks, monitor parallel tool runs,
 /// and review agent responses.
@@ -199,11 +246,9 @@ class _ChatScreenState extends State<ChatScreen> {
   ) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (bottomSheetContext) {
         final theme = Theme.of(bottomSheetContext);
+        final colors = HarnessColors.of(bottomSheetContext);
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -216,11 +261,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   children: [
                     Text(
                       'Select Active Model',
-                      style: Theme.of(bottomSheetContext).textTheme.titleLarge
-                          ?.copyWith(fontWeight: FontWeight.bold),
+                      style: theme.textTheme.titleMedium,
                     ),
                     IconButton(
-                      icon: const Icon(Icons.settings_outlined),
+                      icon: const Icon(HarnessIcons.settings),
                       tooltip: 'Configure Keys',
                       onPressed: () {
                         Navigator.pop(bottomSheetContext);
@@ -250,18 +294,16 @@ class _ChatScreenState extends State<ChatScreen> {
                     return ListTile(
                       leading: Icon(
                         isActive
-                            ? Icons.radio_button_checked
-                            : Icons.radio_button_off,
+                            ? HarnessIcons.radioSelected
+                            : HarnessIcons.radioUnselected,
                         color: isActive
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.outline,
+                            ? colors.primary.c500
+                            : colors.textSecondary,
                       ),
                       title: Text(
                         config.displayName,
-                        style: TextStyle(
-                          fontWeight: isActive
-                              ? FontWeight.bold
-                              : FontWeight.normal,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: isActive ? colors.primary.c500 : null,
                         ),
                       ),
                       subtitle: Row(
@@ -275,11 +317,11 @@ class _ChatScreenState extends State<ChatScreen> {
                             ),
                           ),
                           Text(
-                            ' • $statusText',
+                            ' · $statusText',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: isReady
-                                  ? theme.colorScheme.primary
-                                  : theme.colorScheme.error,
+                                  ? colors.success.c700
+                                  : colors.error.c700,
                             ),
                           ),
                         ],
@@ -309,9 +351,9 @@ class _ChatScreenState extends State<ChatScreen> {
       showDialog(
         context: context,
         builder: (dialogCtx) => AlertDialog(
-          icon: const Icon(
-            Icons.key_off_rounded,
-            color: Colors.amber,
+          icon: Icon(
+            HarnessIcons.keyMissing,
+            color: HarnessColors.of(dialogCtx).warning.c700,
             size: 36,
           ),
           title: const Text('Authentication Error'),
@@ -324,7 +366,7 @@ class _ChatScreenState extends State<ChatScreen> {
               child: const Text('Dismiss'),
             ),
             FilledButton.icon(
-              icon: const Icon(Icons.settings, size: 18),
+              icon: const Icon(HarnessIcons.settings, size: 18),
               label: const Text('Go to Settings'),
               onPressed: () {
                 Navigator.pop(dialogCtx);
@@ -338,7 +380,11 @@ class _ChatScreenState extends State<ChatScreen> {
       showDialog(
         context: context,
         builder: (dialogCtx) => AlertDialog(
-          icon: const Icon(Icons.memory_rounded, color: Colors.red, size: 36),
+          icon: Icon(
+            HarnessIcons.memory,
+            color: HarnessColors.of(dialogCtx).error.c500,
+            size: 36,
+          ),
           title: const Text('Memory Limit Exceeded'),
           content: Text(
             '${errorState.errorMessage}\n\nThe local on-device SLM exceeded mobile RAM boundaries. '
@@ -350,7 +396,7 @@ class _ChatScreenState extends State<ChatScreen> {
               child: const Text('Dismiss'),
             ),
             FilledButton.icon(
-              icon: const Icon(Icons.switch_access_shortcut_rounded, size: 18),
+              icon: const Icon(HarnessIcons.switchModel, size: 18),
               label: const Text('Switch Model'),
               onPressed: () {
                 Navigator.pop(dialogCtx);
@@ -372,23 +418,24 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = HarnessColors.of(context);
 
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.forum_outlined),
+          icon: const Icon(HarnessIcons.sessions),
           tooltip: 'Sessions',
           onPressed: () => Navigator.pushNamed(context, AppRoutes.sessions),
         ),
         title: BlocBuilder<ModelSwitcherBloc, ModelSwitcherState>(
           builder: (context, switcherState) {
+            final colors = HarnessColors.of(context);
             final activeDisplayName = switcherState is ModelSwitcherLoaded
                 ? switcherState.activeConfig.displayName
                 : 'Loading model...';
 
             return InkWell(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(HarnessRadius.sm),
               onTap: () {
                 if (switcherState is ModelSwitcherLoaded) {
                   _showModelQuickSelectSheet(context, switcherState);
@@ -397,50 +444,50 @@ class _ChatScreenState extends State<ChatScreen> {
                 }
               },
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: HarnessSpace.xs,
+                  vertical: HarnessSpace.xs,
+                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    const HarnessMark(size: 20),
+                    const SizedBox(width: HarnessSpace.sm - 2),
                     Flexible(
-                      child: Text(
-                        'Harness',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      child: const HarnessWordmark(fontSize: 18),
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              activeDisplayName,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.onPrimaryContainer,
-                                fontWeight: FontWeight.w600,
+                    const SizedBox(width: HarnessSpace.sm),
+                    Flexible(
+                      child: Container(
+                        height: HarnessSize.pill,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: HarnessSpace.sm,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colors.primary.c100,
+                          borderRadius: BorderRadius.circular(HarnessRadius.xs),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                activeDisplayName,
+                                style: HarnessType.label.copyWith(
+                                  color: colors.primary.c700,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                          const SizedBox(width: 2),
-                          Icon(
-                            Icons.arrow_drop_down,
-                            size: 16,
-                            color: theme.colorScheme.onPrimaryContainer,
-                          ),
-                        ],
+                            const SizedBox(width: 2),
+                            Icon(
+                              HarnessIcons.chevronDown,
+                              size: 14,
+                              color: colors.primary.c700,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -451,12 +498,12 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.folder_outlined),
+            icon: const Icon(HarnessIcons.folder),
             tooltip: 'Workspace & Skills',
             onPressed: () => Navigator.pushNamed(context, AppRoutes.workspace),
           ),
           IconButton(
-            icon: const Icon(Icons.settings_outlined),
+            icon: const Icon(HarnessIcons.settings),
             tooltip: 'Settings',
             onPressed: () => Navigator.pushNamed(context, AppRoutes.settings),
           ),
@@ -466,16 +513,6 @@ class _ChatScreenState extends State<ChatScreen> {
         listener: (context, state) {
           if (state is HarnessSessionError) {
             _handleSessionError(context, state);
-          } else if (state is HarnessA2UIActionResolved) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(state.message),
-                duration: const Duration(seconds: 3),
-                backgroundColor:
-                    state.isError ? Theme.of(context).colorScheme.error : null,
-              ),
-            );
-            _scrollToBottom();
           } else if (state is HarnessTurnExecuting ||
               state is HarnessSessionReady) {
             _scrollToBottom();
@@ -487,6 +524,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ? sessionState
               : null;
           final isExecuting = executingState != null;
+          final surfaceAnchors = _surfaceAnchorTurnIndices(turns);
 
           return Column(
             children: [
@@ -501,15 +539,39 @@ class _ChatScreenState extends State<ChatScreen> {
                         itemCount: turns.length + (isExecuting ? 1 : 0),
                         itemBuilder: (context, index) {
                           if (index < turns.length) {
+                            final turn = turns[index];
+                            final surfaceId = turn.a2uiSurfaceId;
+                            final isSurfaceAnchor =
+                                surfaceId != null &&
+                                surfaceAnchors[surfaceId] == index;
                             return MessageBubble(
-                              turn: turns[index],
-                              onA2UIAction: (action, dataModel) {
+                              key: ValueKey(turn.id),
+                              turn: turn,
+                              a2uiSurface: isSurfaceAnchor
+                                  ? sessionState.surfaces[surfaceId]
+                                  : null,
+                              isA2UISurfaceAnchor: isSurfaceAnchor,
+                              isModelExecuting: isExecuting,
+                              onA2UIAction: (componentId, action, dataModel) {
+                                if (surfaceId == null) return;
                                 context.read<HarnessSessionBloc>().add(
-                                      HandleA2UIActionEvent(
-                                        action: action,
-                                        dataModel: dataModel,
-                                      ),
-                                    );
+                                  HandleA2UIActionEvent(
+                                    surfaceId: surfaceId,
+                                    componentId: componentId,
+                                    action: action,
+                                    dataModel: dataModel,
+                                  ),
+                                );
+                              },
+                              onA2UIValueChanged: (path, value) {
+                                if (surfaceId == null) return;
+                                context.read<HarnessSessionBloc>().add(
+                                  UpdateA2UISurfaceDataEvent(
+                                    surfaceId: surfaceId,
+                                    path: path,
+                                    value: value,
+                                  ),
+                                );
                               },
                             );
                           }
@@ -517,28 +579,27 @@ class _ChatScreenState extends State<ChatScreen> {
                           // Live executing turn item
                           return Padding(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 8,
+                              horizontal: HarnessSpace.lg,
+                              vertical: HarnessSpace.sm,
                             ),
                             child: Row(
                               children: [
-                                const SizedBox(
+                                SizedBox(
                                   width: 14,
                                   height: 14,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
+                                    color: colors.primary.c500,
                                   ),
                                 ),
-                                const SizedBox(width: 8),
+                                const SizedBox(width: HarnessSpace.sm),
                                 Expanded(
                                   child: Text(
                                     executingState?.statusMessage ??
-                                        'Thinking...',
-                                    style: theme.textTheme.labelMedium
-                                        ?.copyWith(
-                                          fontStyle: FontStyle.italic,
-                                          color: theme.colorScheme.outline,
-                                        ),
+                                        'Thinking…',
+                                    style: HarnessType.bodySm.copyWith(
+                                      color: colors.textSecondary,
+                                    ),
                                   ),
                                 ),
                                 if (executingState != null &&
@@ -547,10 +608,12 @@ class _ChatScreenState extends State<ChatScreen> {
                                     key: const ValueKey(
                                       'executing_tool_calls_button',
                                     ),
-                                    icon: const Icon(Icons.expand_more),
+                                    icon: const Icon(
+                                      HarnessIcons.chevronDown,
+                                      size: HarnessSize.iconSm,
+                                    ),
                                     tooltip:
                                         'Show tool calls (${executingState.toolIndicators.length})',
-                                    visualDensity: VisualDensity.compact,
                                     onPressed: () => showToolCallsBottomSheet(
                                       context,
                                       executingState.toolIndicators,
@@ -571,49 +634,62 @@ class _ChatScreenState extends State<ChatScreen> {
               // Bottom pinned prompt input bar
               SafeArea(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
+                  padding: const EdgeInsets.fromLTRB(
+                    HarnessSpace.lg,
+                    HarnessSpace.sm,
+                    HarnessSpace.md,
+                    HarnessSpace.sm,
                   ),
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Expanded(
                         child: TextField(
                           controller: _inputController,
                           focusNode: _inputFocusNode,
                           minLines: 1,
-                          maxLines: 4,
-                          textInputAction: TextInputAction.send,
+                          maxLines: 5,
+                          style: HarnessType.body,
                           onSubmitted: (_) => _submitPrompt(),
                           decoration: InputDecoration(
                             hintText: isExecuting
-                                ? 'Agent is working...'
-                                : 'Ask Harness or give a task...',
-                            filled: true,
-                            fillColor: theme.colorScheme.surfaceContainerHighest
-                                .withValues(alpha: 0.5),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 10,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(24),
-                              borderSide: BorderSide.none,
-                            ),
+                                ? 'Agent is working…'
+                                : 'Ask Harness or give a task…',
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      IconButton.filled(
-                        icon: Icon(
-                          isExecuting
-                              ? Icons.stop_circle_outlined
-                              : Icons.arrow_upward_rounded,
+                      const SizedBox(width: HarnessSpace.sm),
+                      SizedBox(
+                        width: HarnessSize.button,
+                        height: HarnessSize.button,
+                        child: IconButton.filled(
+                          style: IconButton.styleFrom(
+                            backgroundColor: isExecuting
+                                ? colors.error.c700
+                                : colors.primary.c600,
+                            foregroundColor: isExecuting
+                                ? colors.error.c100
+                                : colors.primary.c100,
+                            shape: const RoundedRectangleBorder(
+                              borderRadius: HarnessRadius.smAll,
+                            ),
+                            minimumSize: const Size(
+                              HarnessSize.button,
+                              HarnessSize.button,
+                            ),
+                            padding: EdgeInsets.zero,
+                          ),
+                          icon: Icon(
+                            isExecuting
+                                ? HarnessIcons.stop
+                                : HarnessIcons.send,
+                          ),
+                          tooltip:
+                              isExecuting ? 'Stop Execution' : 'Send Prompt',
+                          onPressed: isExecuting
+                              ? _cancelActiveTurn
+                              : () => _submitPrompt(),
                         ),
-                        tooltip: isExecuting ? 'Stop Execution' : 'Send Prompt',
-                        onPressed: isExecuting
-                            ? _cancelActiveTurn
-                            : () => _submitPrompt(),
                       ),
                     ],
                   ),

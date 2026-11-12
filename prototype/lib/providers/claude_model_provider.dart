@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../core/models/command_definition.dart';
 import '../core/models/provider_config.dart';
+import 'model_http_retry.dart';
 import 'model_provider.dart';
 
 /// Adapter for Anthropic Claude models via the Messages API.
@@ -50,10 +51,13 @@ class ClaudeModelProvider extends ModelProvider {
       'anthropic-version': '2023-06-01',
     };
 
-    final response = await c.post(
-      url,
+    final response = await ModelHttpRetry.post(
+      client: c,
+      url: url,
       headers: headers,
       body: json.encode(payload),
+      provider: 'claude',
+      onRetry: emitRetry,
     );
 
     if (response.statusCode == 401 || response.statusCode == 403) {

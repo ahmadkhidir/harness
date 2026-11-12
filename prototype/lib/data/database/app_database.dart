@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../core/models/model_token_limits.dart';
 import '../../core/models/provider_config.dart';
 import '../../core/utils/network_guard.dart';
 
@@ -29,6 +30,18 @@ class AppDatabase {
   static const String _runnerEndpointKey = 'harness_bridge_runner_endpoint';
   static const String _allowedHostsKey = 'harness_bridge_allowed_hosts';
 
+  /// Canonical label for the generic OpenAI-compatible adapter.
+  static const String _openAICompatibleDisplayName = 'OpenAI-compatible';
+
+  /// Older releases exposed this adapter under Ollama-specific labels. Rename
+  /// only those untouched defaults so user-chosen names are preserved.
+  static const Set<String> _legacyOpenAICompatibleNames = {
+    'Ollama',
+    'Local Ollama',
+    'OpenAI-Compatible',
+    'OpenAI Compatible',
+  };
+
   /// Search provider identifiers accepted by the external web bridge.
   static const Set<String> supportedSearchProviders = {
     'duckduckgo',
@@ -42,6 +55,7 @@ class AppDatabase {
       providerType: 'gemini',
       displayName: 'Gemini',
       modelName: 'gemini-2.0-flash',
+      maxOutputTokens: kDefaultRemoteMaxOutputTokens,
       isActive: true,
     ),
     ProviderConfig(
@@ -49,6 +63,7 @@ class AppDatabase {
       providerType: 'claude',
       displayName: 'Claude',
       modelName: 'claude-3-7-sonnet-20250219',
+      maxOutputTokens: kDefaultRemoteMaxOutputTokens,
       isActive: false,
     ),
     ProviderConfig(
@@ -56,14 +71,16 @@ class AppDatabase {
       providerType: 'openai',
       displayName: 'OpenAI',
       modelName: 'gpt-4o',
+      maxOutputTokens: kDefaultRemoteMaxOutputTokens,
       isActive: false,
     ),
     ProviderConfig(
       id: 'openai_compatible',
       providerType: 'openai_compatible',
-      displayName: 'OpenAI-Compatible',
+      displayName: _openAICompatibleDisplayName,
       modelName: 'llama3:8b',
       customEndpointUrl: 'http://localhost:11434/v1',
+      maxOutputTokens: kDefaultRemoteMaxOutputTokens,
       isActive: false,
     ),
     ProviderConfig(
@@ -71,9 +88,11 @@ class AppDatabase {
       providerType: 'local_device',
       displayName: 'On-Device SLM',
       modelName: 'None (Download required)',
+      maxOutputTokens: kDefaultLocalMaxOutputTokens,
       extraConfig: const {
         'selectedModelSpecId': '',
         'runtime': 'GGUF / LiteRT',
+        'contextWindowTokens': 4096,
       },
       isActive: false,
     ),
@@ -253,7 +272,23 @@ class AppDatabase {
               (item) => ProviderConfig.fromJson(item as Map<String, dynamic>),
             )
             .toList();
+
+        // Migrate untouched legacy labels ("Ollama", "OpenAI-Compatible") to
+        // the canonical "OpenAI-compatible" name.
+        var migrated = false;
+        for (int i = 0; i < list.length; i++) {
+          final config = list[i];
+          if (config.providerType == 'openai_compatible' &&
+              _legacyOpenAICompatibleNames.contains(config.displayName)) {
+            list[i] = config.copyWith(
+              displayName: _openAICompatibleDisplayName,
+            );
+            migrated = true;
+          }
+        }
+
         _cachedConfigs = list;
+        if (migrated) await _persistConfigs(list);
         return List.unmodifiable(list);
       } catch (_) {}
     }

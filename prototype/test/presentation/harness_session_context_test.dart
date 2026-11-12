@@ -97,7 +97,7 @@ void main() {
       contextBuilder: ContextBuilder(),
       modelProvider: _ScriptedProvider([
         '<system_call>{"command": "noop", "parameters": {"x": 1}}</system_call>',
-        '<system_call>{"command": "send_message", "parameters": {"text": "Done."}}</system_call>',
+        '<system_call>{"command": "send_ui_message", "parameters": {"message": "Done."}}</system_call>',
       ]),
     );
 

@@ -31,7 +31,7 @@ class _ReplyProvider extends ModelProvider {
     List<CommandDefinition>? tools,
     String? apiKey,
   }) async {
-    return '<system_call>{"command": "send_message", "parameters": {"text": "How did it go?"}}</system_call>';
+    return '<system_call>{"command": "send_ui_message", "parameters": {"message": "How did it go?"}}</system_call>';
   }
 
   @override

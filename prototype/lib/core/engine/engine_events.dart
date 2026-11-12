@@ -14,6 +14,28 @@ class EngineTurnStarted extends EngineProgressEvent {
 /// Emitted while waiting for the LLM to complete generation.
 class EngineModelGenerating extends EngineProgressEvent {}
 
+/// Emitted when a transient model request is waiting to retry or resuming.
+class EngineModelRetryStatus extends EngineProgressEvent {
+  /// True while waiting for the backoff delay; false when the next attempt starts.
+  final bool waiting;
+
+  /// Failed attempt number.
+  final int attempt;
+
+  /// Maximum number of attempts.
+  final int maxAttempts;
+
+  /// Backoff delay for a waiting event.
+  final Duration delay;
+
+  EngineModelRetryStatus({
+    required this.waiting,
+    required this.attempt,
+    required this.maxAttempts,
+    this.delay = Duration.zero,
+  });
+}
+
 /// Emitted when a tool system call begins execution.
 class EngineSystemCallStarted extends EngineProgressEvent {
   final SystemCall call;

@@ -16,9 +16,8 @@ import 'data/secure_storage/key_storage_service.dart';
 import 'data/services/bridge_settings_service.dart';
 import 'data/services/notification_tap_router.dart';
 import 'data/services/session_service.dart';
+import 'data/services/skills_service.dart';
 import 'data/services/timer_service.dart';
-import 'modules/a2ui/a2ui_module.dart';
-import 'modules/platform_actions/a2ui_event_router.dart';
 import 'modules/platform_actions/platform_actions_module.dart';
 import 'modules/runner/runner_module.dart';
 import 'modules/skills/skills_module.dart';
@@ -34,6 +33,7 @@ import 'presentation/screens/chat_screen.dart';
 import 'presentation/screens/sessions_screen.dart';
 import 'presentation/screens/settings_screen.dart';
 import 'presentation/screens/workspace_screen.dart';
+import 'presentation/theme/app_theme.dart';
 import 'providers/model_provider_factory.dart';
 
 void main() async {
@@ -57,6 +57,7 @@ void main() async {
   try {
     database = AppDatabase();
     await HarnessFileSystem.init(null, database);
+    await SkillsService().seedBuiltinSkills();
     keyStorage = KeyStorageService();
 
     final activeConfig = await database.getActiveProviderConfig();
@@ -74,7 +75,6 @@ void main() async {
     final router = CommandRouter();
     router.registerModule(SkillsModule());
     router.registerModule(StorageModule());
-    router.registerModule(A2UIModule());
     router.registerModule(PlatformActionsModule());
     final bridgeSettings = BridgeSettingsService(
       database: database,
@@ -106,10 +106,12 @@ void main() async {
   } catch (_) {
     database = AppDatabase.inMemory();
     keyStorage = KeyStorageService(useInMemoryFallback: true);
+    try {
+      await SkillsService().seedBuiltinSkills();
+    } catch (_) {}
     final router = CommandRouter();
     router.registerModule(SkillsModule());
     router.registerModule(StorageModule());
-    router.registerModule(A2UIModule());
     router.registerModule(PlatformActionsModule());
     final bridgeSettings = BridgeSettingsService(
       database: database,
@@ -190,7 +192,6 @@ class _HarnessAppState extends State<HarnessApp> {
   late final TimerService _timerService;
   late final ModelSwitcherBloc _modelSwitcherBloc;
   late final HarnessSessionBloc _harnessSessionBloc;
-  late final A2UIEventRouter _a2uiEventRouter;
 
   @override
   void initState() {
@@ -211,7 +212,6 @@ class _HarnessAppState extends State<HarnessApp> {
       final router = CommandRouter();
       router.registerModule(SkillsModule());
       router.registerModule(StorageModule());
-      router.registerModule(A2UIModule());
       router.registerModule(PlatformActionsModule());
       final bridgeSettings = BridgeSettingsService(
         database: _database,
@@ -252,16 +252,11 @@ class _HarnessAppState extends State<HarnessApp> {
       engine: _engine,
     )..add(const LoadProviderConfigsEvent());
 
-    _a2uiEventRouter = A2UIEventRouter(
-      platformActions: PlatformActionsModule(),
-    );
-
     _harnessSessionBloc = HarnessSessionBloc(
       engine: _engine,
       keyStorage: _keyStorage,
       sessionService: _sessionService,
       timerService: _timerService,
-      a2uiEventRouter: _a2uiEventRouter,
     );
 
     NotificationTapRouter.onTap = (payload) {
@@ -303,21 +298,11 @@ class _HarnessAppState extends State<HarnessApp> {
       child: MaterialApp(
         title: 'Harness',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF1E88E5),
-            brightness: Brightness.light,
-          ),
-        ),
-        darkTheme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF1E88E5),
-            brightness: Brightness.dark,
-          ),
-        ),
-        themeMode: ThemeMode.system,
+        theme: buildHarnessTheme(brightness: Brightness.light),
+        darkTheme: buildHarnessTheme(brightness: Brightness.dark),
+        // Dark is the product default; the light column exists so the system
+        // inverts as one palette swap.
+        themeMode: ThemeMode.dark,
         initialRoute: AppRoutes.chat,
         routes: {
           AppRoutes.chat: (_) => const ChatScreen(),

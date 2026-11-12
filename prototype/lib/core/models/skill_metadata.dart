@@ -17,10 +17,17 @@ class SkillMetadata {
   /// Semantic version string, e.g. `1.0.0`.
   final String version;
 
+  /// True when the skill is a built-in package that the UI treats as read-only.
+  ///
+  /// This is a UX lock only. The skill lives in user-accessible storage and can
+  /// still be edited manually; the app never treats it as a security boundary.
+  final bool isLocked;
+
   SkillMetadata({
     required this.name,
     required this.description,
     required this.version,
+    this.isLocked = false,
   }) {
     // Strictly enforce kebab-case matching the filesystem folder naming rule.
     // This guarantees safe directory resolution without special characters or path separators.
@@ -39,7 +46,12 @@ class SkillMetadata {
 
   /// Serializes the skill metadata to a JSON map.
   Map<String, dynamic> toJson() {
-    return {'name': name, 'description': description, 'version': version};
+    return {
+      'name': name,
+      'description': description,
+      'version': version,
+      if (isLocked) 'isLocked': true,
+    };
   }
 
   /// Deserializes skill metadata from a JSON map.
@@ -48,6 +60,7 @@ class SkillMetadata {
       name: json['name'] as String,
       description: json['description'] as String,
       version: json['version'] as String? ?? '1.0.0',
+      isLocked: json['isLocked'] as bool? ?? false,
     );
   }
 
@@ -57,8 +70,9 @@ class SkillMetadata {
       other is SkillMetadata &&
           runtimeType == other.runtimeType &&
           name == other.name &&
-          version == other.version;
+          version == other.version &&
+          isLocked == other.isLocked;
 
   @override
-  int get hashCode => name.hashCode ^ version.hashCode;
+  int get hashCode => name.hashCode ^ version.hashCode ^ isLocked.hashCode;
 }

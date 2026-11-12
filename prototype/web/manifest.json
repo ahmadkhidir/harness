@@ -1,11 +1,11 @@
 {
-    "name": "harness",
-    "short_name": "harness",
+    "name": "Harness",
+    "short_name": "Harness",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#141A19",
+    "theme_color": "#141A19",
+    "description": "The agent that runs the tools, not only the chat.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

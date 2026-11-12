@@ -1,22 +1,39 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:harness/modules/a2ui/a2ui_surface_store.dart';
 import 'package:harness/modules/a2ui/widgets/a2ui_audio_player.dart';
 import 'package:harness/modules/a2ui/widgets/a2ui_video_player.dart';
 import 'package:harness/modules/a2ui/widgets/a2ui_component_registry.dart';
 import 'package:harness/modules/a2ui/widgets/a2ui_surface_view.dart';
+
+A2UISurfaceState? surfaceFromPayload(Map<String, dynamic>? payload) {
+  if (payload == null) return null;
+  final store = A2UISurfaceStore();
+  final messages = payload['messages'];
+  final result = messages is List
+      ? store.applyMessages(messages)
+      : store.applyMessages([payload]);
+  if (!result.success || store.surfaces.isEmpty) return null;
+  final surfaceId = result.primarySurfaceId ?? store.surfaces.keys.first;
+  return store.surface(surfaceId);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   Widget buildTestWidget({
     required Map<String, dynamic>? payload,
-    void Function(String action, Map<String, dynamic> dataModel)? onAction,
+    void Function(
+      String componentId,
+      String action,
+      Map<String, dynamic> dataModel,
+    )? onAction,
   }) {
     return MaterialApp(
       home: Scaffold(
         body: Center(
           child: A2UISurfaceView(
-            payload: payload,
+            surface: surfaceFromPayload(payload),
             onAction: onAction,
           ),
         ),
@@ -109,7 +126,7 @@ void main() {
 
       await tester.pumpWidget(buildTestWidget(
         payload: payload,
-        onAction: (act, dm) {
+        onAction: (componentId, act, dm) {
           tappedAction = act;
           tappedData = dm;
         },
@@ -132,7 +149,8 @@ void main() {
       expect(tappedData?['eventTitle'], equals('Mission Launch'));
     });
 
-    testWidgets('renders fallback notice on malformed payload without crashing isolate', (tester) async {
+    testWidgets('omits a malformed payload without crashing the isolate',
+        (tester) async {
       final malformedPayload = {
         'messages': 'invalid_string_instead_of_list',
       };
@@ -140,8 +158,8 @@ void main() {
       await tester.pumpWidget(buildTestWidget(payload: malformedPayload));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('A2UI notice:'), findsOneWidget);
-      expect(find.byIcon(Icons.error_outline), findsOneWidget);
+      expect(find.textContaining('A2UI notice:'), findsNothing);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('missing required properties apply safe defaults without throwing', (tester) async {
@@ -224,11 +242,11 @@ void main() {
                   'id': 'agree_check',
                   'component': 'CheckBox',
                   'label': 'I agree to the terms',
-                  'value': true,
+                  'value': {'@path': '/form/agreed'},
                 },
               ],
               'dataModel': {
-                'form': {'rep': 'John Doe'},
+                'form': {'rep': 'John Doe', 'agreed': true},
               },
             },
           },
@@ -383,7 +401,9 @@ void main() {
             body: Center(
               child: SizedBox(
                 width: 300,
-                child: A2UISurfaceView(payload: wideRowPayload),
+                child: A2UISurfaceView(
+                  surface: surfaceFromPayload(wideRowPayload),
+                ),
               ),
             ),
           ),
@@ -447,6 +467,122 @@ void main() {
       final hasFallback = find.text('Video Preview').evaluate().isNotEmpty;
       final hasPlayer = find.byType(AspectRatio).evaluate().isNotEmpty;
       expect(hasFallback || hasPlayer, isTrue);
+    });
+
+    testWidgets('CheckBox updates its bound state and action payload',
+        (tester) async {
+      final store = A2UISurfaceStore();
+      store.applyMessages([
+        {
+          'version': '1.0',
+          'createSurface': {
+            'surfaceId': 'form',
+            'catalogId': 'basic/v1',
+            'components': [
+              {'id': 'root', 'component': 'Column', 'children': ['agree']},
+              {
+                'id': 'agree',
+                'component': 'CheckBox',
+                'label': 'Agree',
+                'value': {'@path': '/form/agreed'},
+                'onChange': 'agreement_changed',
+              },
+            ],
+            'dataModel': {
+              'form': {'agreed': false},
+            },
+          },
+        },
+      ]);
+
+      Map<String, dynamic>? captured;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => A2UISurfaceView(
+              surface: store.surface('form'),
+              onValueChanged: (path, value) {
+                store.setDataModelValue('form', path, value);
+                setState(() {});
+              },
+              onAction: (componentId, action, dataModel) {
+                captured = dataModel;
+              },
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+        isFalse,
+      );
+
+      await tester.tap(find.byType(CheckboxListTile));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+        isTrue,
+      );
+      expect(captured?['form']?['agreed'], isTrue);
+    });
+
+    testWidgets('TextField keeps typed state and sends it on submit',
+        (tester) async {
+      final store = A2UISurfaceStore();
+      store.applyMessages([
+        {
+          'version': '1.0',
+          'createSurface': {
+            'surfaceId': 'form',
+            'catalogId': 'basic/v1',
+            'components': [
+              {'id': 'root', 'component': 'Column', 'children': ['name']},
+              {
+                'id': 'name',
+                'component': 'TextField',
+                'label': 'Name',
+                'value': {'@path': '/form/name'},
+                'onChange': 'name_submitted',
+              },
+            ],
+            'dataModel': {
+              'form': {'name': ''},
+            },
+          },
+        },
+      ]);
+
+      Map<String, dynamic>? captured;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => A2UISurfaceView(
+              surface: store.surface('form'),
+              onValueChanged: (path, value) {
+                store.setDataModelValue('form', path, value);
+                setState(() {});
+              },
+              onAction: (componentId, action, dataModel) {
+                captured = dataModel;
+              },
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'Ada');
+      await tester.pump();
+
+      expect(store.surface('form')!.dataModel['form']['name'], 'Ada');
+
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+
+      expect(captured?['form']?['name'], 'Ada');
     });
   });
 }

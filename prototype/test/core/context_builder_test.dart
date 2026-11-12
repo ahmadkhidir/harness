@@ -40,12 +40,14 @@ void main() {
         isTrue,
       );
 
-      // Verify delivery commands format
+      // Verify the single delivery command format
       expect(
         instruction.contains(
-            '`<system_call>{"command": "send_message", "parameters": {"text": "<markdown>"}}</system_call>`'),
+            '`<system_call>{"command": "send_ui_message", "parameters": {"message": "<your markdown response>"}}</system_call>`'),
         isTrue,
       );
+      expect(instruction.contains('send_a2ui'), isFalse);
+      expect(instruction.contains('load_a2ui_catalog'), isFalse);
 
       // Verify skill format does NOT include version
       expect(

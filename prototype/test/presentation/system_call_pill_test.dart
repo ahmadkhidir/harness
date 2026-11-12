@@ -1,3 +1,4 @@
+import 'package:harness/presentation/theme/harness_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:harness/core/models/system_call.dart';
@@ -39,7 +40,7 @@ void main() {
       );
 
       expect(find.text('read_file'), findsOneWidget);
-      expect(find.byIcon(Icons.check_circle), findsOneWidget);
+      expect(find.byIcon(HarnessIcons.success), findsOneWidget);
     });
 
     testWidgets('renders error indicator with error icon', (tester) async {
@@ -58,7 +59,7 @@ void main() {
       );
 
       expect(find.text('grep'), findsOneWidget);
-      expect(find.byIcon(Icons.error_outline), findsOneWidget);
+      expect(find.byIcon(HarnessIcons.error), findsOneWidget);
     });
   });
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../core/engine/system_call_parser.dart';
 import '../core/models/command_definition.dart';
 import '../core/models/provider_config.dart';
@@ -54,6 +56,41 @@ class ModelResponse {
     this.finishReason,
     this.promptTokens,
     this.completionTokens,
+  });
+}
+
+/// Phase of a transient-failure retry.
+enum ModelRetryPhase {
+  /// Waiting for the backoff delay before the next attempt.
+  waiting,
+
+  /// The next attempt is starting; the UI should return to its thinking state.
+  attempting,
+}
+
+/// Progress notification emitted while a model request is being retried.
+class ModelRetryEvent {
+  /// Current retry phase.
+  final ModelRetryPhase phase;
+
+  /// Attempt number associated with this event.
+  final int attempt;
+
+  /// Maximum number of attempts.
+  final int maxAttempts;
+
+  /// Backoff delay for a [ModelRetryPhase.waiting] event.
+  final Duration delay;
+
+  /// Short reason such as `HTTP 429` or a network error type.
+  final String reason;
+
+  const ModelRetryEvent({
+    required this.phase,
+    required this.attempt,
+    required this.maxAttempts,
+    this.delay = Duration.zero,
+    this.reason = '',
   });
 }
 
@@ -119,8 +156,33 @@ String stripInlineReasoning(String text) {
 /// Concrete implementations exist for Google Gemini, Anthropic Claude, OpenAI,
 /// OpenAI-compatible local endpoints (Ollama/vLLM), and on-device SLMs (Google LiteRT-LM / flutter_edge_ai).
 abstract class ModelProvider {
+  final StreamController<ModelRetryEvent> _retryController =
+      StreamController<ModelRetryEvent>.broadcast();
+
+  /// Progress events for transient request retries.
+  Stream<ModelRetryEvent> get retryEvents => _retryController.stream;
+
+  /// Publishes a retry event to listeners such as the session UI.
+  void emitRetry(ModelRetryEvent event) {
+    if (!_retryController.isClosed) {
+      _retryController.add(event);
+    }
+  }
+
+  /// Releases the retry event stream.
+  void dispose() {
+    _retryController.close();
+  }
+
   /// The configuration metadata describing this provider.
   ProviderConfig get config;
+
+  /// Identifier of the conversation currently being executed.
+  ///
+  /// Providers that require session affinity (for example OpenCode Go's
+  /// `x-opencode-session` routing header) read this value. The engine sets it
+  /// at the start of every `executeTurn` call.
+  String? sessionId;
 
   /// Generates a complete text response from the model for the given conversation history.
   Future<String> generate({

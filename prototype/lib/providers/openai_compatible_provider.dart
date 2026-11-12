@@ -1,15 +1,22 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 import '../core/models/command_definition.dart';
 import '../core/models/provider_config.dart';
+import 'model_http_retry.dart';
 import 'model_provider.dart';
 
-/// Generic adapter for OpenAI-compatible inference servers (Ollama, vLLM, DeepSeek, LocalAI).
+/// Generic adapter for OpenAI-compatible inference servers (OpenCode, Ollama,
+/// vLLM, DeepSeek, LocalAI).
 class OpenAICompatibleProvider extends ModelProvider {
   @override
   final ProviderConfig config;
   final http.Client? client;
+
+  /// Stable fallback used when no conversation id has been supplied (for
+  /// example when the adapter is driven directly from a test).
+  final String _fallbackSessionId = const Uuid().v4();
 
   OpenAICompatibleProvider({required this.config, this.client});
 
@@ -42,14 +49,25 @@ class OpenAICompatibleProvider extends ModelProvider {
 
     final headers = <String, String>{
       'Content-Type': 'application/json',
+      // OpenCode Go rejects requests without a stable session id. The engine
+      // supplies the active conversation id; fall back to a provider-scoped id
+      // when the adapter is used outside the engine. Other OpenAI-compatible
+      // servers ignore unknown headers, so this is safe for every endpoint.
+      'x-opencode-session': sessionId ?? _fallbackSessionId,
+      // OpenCode asks clients to identify themselves instead of relying on the
+      // generic default HTTP-library user agent.
+      'User-Agent': 'harness/1.0',
       if (apiKey != null && apiKey.isNotEmpty) 'Authorization': 'Bearer $apiKey',
       ...config.customHeaders,
     };
 
-    final response = await c.post(
-      url,
+    final response = await ModelHttpRetry.post(
+      client: c,
+      url: url,
       headers: headers,
       body: json.encode(payload),
+      provider: 'openai_compatible',
+      onRetry: emitRetry,
     );
 
     if (response.statusCode == 401 || response.statusCode == 403) {

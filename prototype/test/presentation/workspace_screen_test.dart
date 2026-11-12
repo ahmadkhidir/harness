@@ -1,3 +1,4 @@
+import 'package:harness/presentation/theme/harness_icons.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -41,8 +42,8 @@ void main() {
     await tester.pumpWidget(createTestWidget());
     await tester.pumpAndSettle();
 
-    expect(find.text('Workspace & Skills'), findsOneWidget);
-    expect(find.byIcon(Icons.refresh), findsOneWidget);
+    expect(find.text('Workspace'), findsOneWidget);
+    expect(find.byIcon(HarnessIcons.refresh), findsOneWidget);
 
     expect(find.text('Storage Files'), findsOneWidget);
     expect(find.text('Installed Skills'), findsOneWidget);
@@ -81,10 +82,10 @@ void main() {
     expect(find.text('Line 1: Hello'), findsOneWidget);
     expect(find.text('Line 2: World'), findsOneWidget);
     expect(find.text('1'), findsWidgets); // Line number 1
-    expect(find.byTooltip('Copy Virtual Path'), findsOneWidget);
+    expect(find.byTooltip('Copy virtual path'), findsOneWidget);
 
     // Close preview sheet
-    await tester.tap(find.byIcon(Icons.close));
+    await tester.tap(find.byIcon(HarnessIcons.x));
     await tester.pumpAndSettle();
     expect(find.text('Line 1: Hello'), findsNothing);
 
@@ -152,7 +153,7 @@ Extract all major arguments.
     expect(find.text('references/guide.md'), findsOneWidget);
 
     // Close detail sheet
-    await tester.tap(find.byIcon(Icons.close));
+    await tester.tap(find.byIcon(HarnessIcons.x));
     await tester.pumpAndSettle();
 
     await tester.pumpWidget(const SizedBox());

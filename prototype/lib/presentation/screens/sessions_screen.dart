@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+
 import '../../core/models/session.dart';
 import '../../core/utils/file_system_manager.dart';
 import '../../data/database/app_database.dart';
 import '../../data/services/session_service.dart';
 import '../bloc/harness_session_bloc.dart';
 import '../bloc/harness_session_event.dart';
+import '../theme/brand_mark.dart';
+import '../theme/harness_colors.dart';
+import '../theme/harness_icons.dart';
+import '../theme/harness_tokens.dart';
 
 /// Screen 2: Sessions Management.
 ///
@@ -113,10 +118,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to create session: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
+          SnackBar(content: Text('Failed to create session: $e')),
         );
       }
     }
@@ -128,15 +130,14 @@ class _SessionsScreenState extends State<SessionsScreen> {
     final newTitle = await showDialog<String>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: const Text('Rename Session'),
+        title: const Text('Rename session'),
         content: TextField(
           controller: controller,
           autofocus: true,
           maxLength: 128,
           decoration: const InputDecoration(
-            labelText: 'Session Title',
+            labelText: 'Session title',
             hintText: 'Enter session title',
-            border: OutlineInputBorder(),
           ),
         ),
         actions: [
@@ -159,10 +160,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to rename session: $e'),
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
+            SnackBar(content: Text('Failed to rename session: $e')),
           );
         }
       }
@@ -170,14 +168,18 @@ class _SessionsScreenState extends State<SessionsScreen> {
   }
 
   Future<void> _showDeleteDialog(Session session) async {
+    final colors = HarnessColors.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        icon: const Icon(Icons.delete_outline, color: Colors.red, size: 36),
-        title: const Text('Delete Session?'),
+        icon: Icon(
+          HarnessIcons.trash,
+          color: colors.error.c500,
+          size: 36,
+        ),
+        title: const Text('Delete session?'),
         content: Text(
-          'Are you sure you want to permanently delete "${session.title}"?\n'
-          'All message history and context files will be deleted from disk.',
+          'Permanently delete "${session.title}" and its context files from disk?',
         ),
         actions: [
           TextButton(
@@ -186,7 +188,8 @@ class _SessionsScreenState extends State<SessionsScreen> {
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(dialogCtx).colorScheme.error,
+              backgroundColor: colors.error.c700,
+              foregroundColor: colors.error.c100,
             ),
             onPressed: () => Navigator.pop(dialogCtx, true),
             child: const Text('Delete'),
@@ -206,10 +209,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to delete session: $e'),
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
+            SnackBar(content: Text('Failed to delete session: $e')),
           );
         }
       }
@@ -237,28 +237,40 @@ class _SessionsScreenState extends State<SessionsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = HarnessColors.of(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: _isSearching
+        leading: IconButton(
+        icon: const Icon(HarnessIcons.arrowLeft),
+        tooltip: 'Back',
+        onPressed: () => Navigator.maybePop(context),
+      ),
+      title: _isSearching
             ? TextField(
                 controller: _searchController,
                 autofocus: true,
+                style: theme.textTheme.titleLarge,
                 decoration: InputDecoration(
-                  hintText: 'Search sessions...',
+                  hintText: 'Search sessions…',
+                  filled: false,
                   border: InputBorder.none,
-                  hintStyle: TextStyle(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                  hintStyle: theme.textTheme.titleLarge?.copyWith(
+                    color: colors.textSecondary,
                   ),
                 ),
                 onChanged: (_) => setState(() {}),
               )
-            : const Text('All Sessions'),
+            : const Text('Sessions'),
         actions: [
           if (_isSearching)
             IconButton(
-              icon: const Icon(Icons.close),
-              tooltip: 'Clear Search',
+              icon: const Icon(HarnessIcons.x),
+              tooltip: 'Clear search',
               onPressed: () {
                 setState(() {
                   _searchController.clear();
@@ -268,8 +280,8 @@ class _SessionsScreenState extends State<SessionsScreen> {
             )
           else
             IconButton(
-              icon: const Icon(Icons.search),
-              tooltip: 'Search Sessions',
+              icon: const Icon(HarnessIcons.search),
+              tooltip: 'Search sessions',
               onPressed: () {
                 setState(() {
                   _isSearching = true;
@@ -278,16 +290,16 @@ class _SessionsScreenState extends State<SessionsScreen> {
             ),
         ],
       ),
-      body: _buildBody(theme),
+      body: _buildBody(theme, colors),
       floatingActionButton: FloatingActionButton(
-        tooltip: 'New Session',
+        tooltip: 'New session',
         onPressed: _createNewSession,
-        child: const Icon(Icons.add),
+        child: const Icon(HarnessIcons.add),
       ),
     );
   }
 
-  Widget _buildBody(ThemeData theme) {
+  Widget _buildBody(ThemeData theme, HarnessColors colors) {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -295,20 +307,24 @@ class _SessionsScreenState extends State<SessionsScreen> {
     if (_errorMessage != null) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(HarnessSpace.xl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
-              const SizedBox(height: 16),
+              Icon(
+                HarnessIcons.error,
+                size: 48,
+                color: colors.error.c500,
+              ),
+              const SizedBox(height: HarnessSpace.lg),
               Text(
                 _errorMessage!,
                 textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium,
+                style: HarnessType.bodySm.copyWith(color: colors.error.c700),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: HarnessSpace.lg),
               FilledButton.icon(
-                icon: const Icon(Icons.refresh),
+                icon: const Icon(HarnessIcons.refresh),
                 label: const Text('Retry'),
                 onPressed: _loadSessions,
               ),
@@ -323,39 +339,34 @@ class _SessionsScreenState extends State<SessionsScreen> {
     if (filtered.isEmpty) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(32),
+          padding: const EdgeInsets.all(HarnessSpace.xxl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.forum_outlined,
-                size: 64,
-                color: theme.colorScheme.primary.withValues(alpha: 0.5),
-              ),
-              const SizedBox(height: 16),
+              const HarnessMark(size: 48, accented: true),
+              const SizedBox(height: HarnessSpace.lg),
               Text(
-                _isSearching ? 'No Matching Sessions' : 'No Sessions Yet',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+                _isSearching ? 'No matching sessions' : 'No sessions yet',
+                style: theme.textTheme.titleMedium,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: HarnessSpace.sm),
               Text(
                 _isSearching
-                    ? 'No sessions match your search criteria.'
-                    : 'Start your first agent conversation thread to begin.',
+                    ? 'No session title or ID matches that search.'
+                    : 'Start a session to keep turns, tool calls, and context together.',
                 textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                style: HarnessType.bodySm.copyWith(
+                  color: colors.textSecondary,
                 ),
               ),
-              const SizedBox(height: 24),
-              if (!_isSearching)
+              if (!_isSearching) ...[
+                const SizedBox(height: HarnessSpace.xl),
                 FilledButton.icon(
-                  icon: const Icon(Icons.add_comment_outlined),
-                  label: const Text('Start First Session'),
+                  icon: const Icon(HarnessIcons.newSession),
+                  label: const Text('New session'),
                   onPressed: _createNewSession,
                 ),
+              ],
             ],
           ),
         ),
@@ -365,13 +376,18 @@ class _SessionsScreenState extends State<SessionsScreen> {
     return RefreshIndicator(
       onRefresh: _loadSessions,
       child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
+        padding: const EdgeInsets.fromLTRB(
+          HarnessSpace.lg,
+          HarnessSpace.md,
+          HarnessSpace.lg,
+          HarnessSpace.xxxl + HarnessSpace.xl,
+        ),
         itemCount: filtered.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 10),
+        separatorBuilder: (_, _) => const SizedBox(height: HarnessSpace.md),
         itemBuilder: (context, index) {
           final session = filtered[index];
           final isActive = session.id == _activeSessionId;
-          return _buildSessionCard(context, session, isActive, theme);
+          return _buildSessionCard(context, session, isActive, theme, colors);
         },
       ),
     );
@@ -382,24 +398,24 @@ class _SessionsScreenState extends State<SessionsScreen> {
     Session session,
     bool isActive,
     ThemeData theme,
+    HarnessColors colors,
   ) {
     final contextSizeKb = (session.contextSizeBytes / 1024).toStringAsFixed(1);
 
-    return Card(
-      elevation: isActive ? 2 : 1,
+    return Material(
+      color: isActive ? colors.primary.c100 : colors.surface,
+      clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: isActive
-            ? BorderSide(color: theme.colorScheme.primary, width: 2)
-            : BorderSide(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-              ),
+        borderRadius: HarnessRadius.mdAll,
+        side: BorderSide(
+          color: isActive ? colors.primary.c500 : colors.border,
+          width: isActive ? 1.5 : 1,
+        ),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
         onTap: () => _selectSession(session),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(HarnessSpace.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -415,49 +431,49 @@ class _SessionsScreenState extends State<SessionsScreen> {
                             Flexible(
                               child: Text(
                                 session.title,
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: isActive ? theme.colorScheme.primary : null,
-                                ),
+                                style: theme.textTheme.titleSmall,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             if (isActive) ...[
-                              const SizedBox(width: 8),
+                              const SizedBox(width: HarnessSpace.sm),
                               Container(
+                                height: 22,
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 2,
+                                  horizontal: HarnessSpace.sm,
                                 ),
+                                alignment: Alignment.center,
                                 decoration: BoxDecoration(
-                                  color: theme.colorScheme.primaryContainer,
-                                  borderRadius: BorderRadius.circular(12),
+                                  color: colors.primary.c600,
+                                  borderRadius:
+                                      BorderRadius.circular(HarnessRadius.xs),
                                 ),
                                 child: Text(
                                   'Active',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: theme.colorScheme.onPrimaryContainer,
+                                  style: HarnessType.label.copyWith(
+                                    color: colors.primary.c100,
                                   ),
                                 ),
                               ),
                             ],
                           ],
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: HarnessSpace.xs),
                         Text(
                           'Updated ${_formatTimestamp(session.updatedAt)}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
+                          style: HarnessType.bodySm.copyWith(
+                            color: colors.textSecondary,
                           ),
                         ),
                       ],
                     ),
                   ),
                   PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert, size: 20),
+                    icon: const Icon(
+                      HarnessIcons.more,
+                      size: HarnessSize.iconMd,
+                    ),
                     tooltip: 'Session options',
                     onSelected: (action) {
                       if (action == 'rename') {
@@ -471,8 +487,8 @@ class _SessionsScreenState extends State<SessionsScreen> {
                         value: 'rename',
                         child: Row(
                           children: [
-                            Icon(Icons.edit_outlined, size: 18),
-                            SizedBox(width: 10),
+                            Icon(HarnessIcons.pencil, size: HarnessSize.iconSm),
+                            SizedBox(width: HarnessSpace.sm),
                             Text('Rename'),
                           ],
                         ),
@@ -482,14 +498,14 @@ class _SessionsScreenState extends State<SessionsScreen> {
                         child: Row(
                           children: [
                             Icon(
-                              Icons.delete_outline,
-                              size: 18,
-                              color: theme.colorScheme.error,
+                              HarnessIcons.trash,
+                              size: HarnessSize.iconSm,
+                              color: colors.error.c500,
                             ),
-                            const SizedBox(width: 10),
+                            const SizedBox(width: HarnessSpace.sm),
                             Text(
                               'Delete',
-                              style: TextStyle(color: theme.colorScheme.error),
+                              style: TextStyle(color: colors.error.c700),
                             ),
                           ],
                         ),
@@ -498,61 +514,45 @@ class _SessionsScreenState extends State<SessionsScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: HarnessSpace.md),
               Wrap(
-                spacing: 8,
-                runSpacing: 6,
+                spacing: HarnessSpace.sm,
+                runSpacing: HarnessSpace.xs,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      '${session.totalTurns} ${session.totalTurns == 1 ? 'turn' : 'turns'}',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                  _MetaTag(
+                    label:
+                        '${session.totalTurns} ${session.totalTurns == 1 ? 'turn' : 'turns'}',
+                    colors: colors,
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      '$contextSizeKb KB context',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
+                  _MetaTag(
+                    label: '$contextSizeKb KB context',
+                    colors: colors,
                   ),
                   if (session.compactionCount > 0)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      height: HarnessSize.pill - 4,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: HarnessSpace.sm,
+                      ),
                       decoration: BoxDecoration(
-                        color: Colors.purple.shade50,
-                        border: Border.all(color: Colors.purple.shade200),
-                        borderRadius: BorderRadius.circular(8),
+                        color: colors.warning.c100,
+                        border: Border.all(color: colors.warning.c300),
+                        borderRadius: BorderRadius.circular(HarnessRadius.xs),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                            Icons.auto_awesome,
+                            HarnessIcons.compaction,
                             size: 12,
-                            color: Colors.purple.shade700,
+                            color: colors.warning.c700,
                           ),
-                          const SizedBox(width: 4),
+                          const SizedBox(width: HarnessSpace.xs),
                           Text(
-                            'Compacted (${session.compactionCount}x)',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.purple.shade800,
+                            'Compacted ${session.compactionCount}×',
+                            style: HarnessType.label.copyWith(
+                              color: colors.warning.c700,
                             ),
                           ),
                         ],
@@ -563,6 +563,32 @@ class _SessionsScreenState extends State<SessionsScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Small neutral metadata tag used for turn counts and context size.
+class _MetaTag extends StatelessWidget {
+  final String label;
+  final HarnessColors colors;
+
+  const _MetaTag({required this.label, required this.colors});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: HarnessSize.pill - 4,
+      padding: const EdgeInsets.symmetric(horizontal: HarnessSpace.sm),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: colors.surfaceSecondary,
+        border: Border.all(color: colors.border),
+        borderRadius: BorderRadius.circular(HarnessRadius.xs),
+      ),
+      child: Text(
+        label,
+        style: HarnessType.label.copyWith(color: colors.textSecondary),
       ),
     );
   }

@@ -192,7 +192,7 @@ Scratchpad: Need to inspect both local storage and the live web.
           // Turn 2: Delivery after observations
           '''
 <system_call>
-{"command": "send_message", "parameters": {"text": "Compiled findings from storage and web."}}
+{"command": "send_ui_message", "parameters": {"message": "Compiled findings from storage and web."}}
 </system_call>
 ''',
         ]);
@@ -228,7 +228,7 @@ Scratchpad: Need to inspect both local storage and the live web.
 <system_call>{"command": "read_file", "parameters": {"path": "test.txt"}}</system_call>
 <system_call>{"command": "web_search", "parameters": {"query": "Harness"}}</system_call>
 ''',
-          '<system_call>{"command": "send_message", "parameters": {"text": "Done."}}</system_call>',
+          '<system_call>{"command": "send_ui_message", "parameters": {"message": "Done."}}</system_call>',
         ]);
 
         final engine = HarnessEngine(
@@ -244,11 +244,16 @@ Scratchpad: Need to inspect both local storage and the live web.
         bloc.add(const InitializeSessionEvent(sessionId: 'sess_bloc_1'));
         await pumpEventQueue();
 
-        bloc.add(const SubmitUserPromptEvent('Run parallel actions'));
-        await pumpEventQueue();
+        final finished = bloc.stream
+            .firstWhere(
+              (state) =>
+                  state is HarnessSessionReady && state.turns.length == 2,
+            )
+            .timeout(const Duration(seconds: 10));
 
-        // Allow async engine events to propagate through BLoC stream
-        await Future.delayed(const Duration(milliseconds: 250));
+        bloc.add(const SubmitUserPromptEvent('Run parallel actions'));
+
+        final finalState = await finished;
 
         // Verify states progressed through turn execution with real-time tool indicators
         final executingStates = states
@@ -263,9 +268,9 @@ Scratchpad: Need to inspect both local storage and the live web.
         expect(hasToolIndicators, isTrue);
 
         // Final state must be ready with completed turns
-        expect(bloc.state, isA<HarnessSessionReady>());
-        expect(bloc.state.turns.length, 2); // user turn + agent turn
-        expect(bloc.state.turns.last.text, 'Done.');
+        expect(finalState, isA<HarnessSessionReady>());
+        expect(finalState.turns.length, 2); // user turn + agent turn
+        expect(finalState.turns.last.text, 'Done.');
 
         await sub.cancel();
         await bloc.close();
@@ -277,7 +282,7 @@ Scratchpad: Need to inspect both local storage and the live web.
       () async {
         final model = ScriptedModelProvider([
           '<system_call>{"command": "read_file", "parameters": {"path": "notes.txt"}}</system_call>',
-          '<system_call>{"command": "send_message", "parameters": {"text": "Final response after reading"}}</system_call>',
+          '<system_call>{"command": "send_ui_message", "parameters": {"message": "Final response after reading"}}</system_call>',
         ]);
 
         final engine = HarnessEngine(
@@ -313,7 +318,7 @@ Scratchpad: Need to inspect both local storage and the live web.
 <system_call>{"command": "crash_op", "parameters": {}}</system_call>
 <system_call>{"command": "read_file", "parameters": {"path": "ok.txt"}}</system_call>
 ''',
-          '<system_call>{"command": "send_message", "parameters": {"text": "Handled crash gracefully"}}</system_call>',
+          '<system_call>{"command": "send_ui_message", "parameters": {"message": "Handled crash gracefully"}}</system_call>',
         ]);
 
         final engine = HarnessEngine(
@@ -388,7 +393,7 @@ Scratchpad: Need to inspect both local storage and the live web.
 </system_call>
 ''',
           // Model corrects itself on next turn
-          '<system_call>{"command": "send_message", "parameters": {"text": "Self-corrected after error observation"}}</system_call>',
+          '<system_call>{"command": "send_ui_message", "parameters": {"message": "Self-corrected after error observation"}}</system_call>',
         ]);
 
         final engine = HarnessEngine(

@@ -48,23 +48,57 @@ class CancelActiveTurnEvent extends HarnessSessionEvent {
 
 /// Dispatched when a user taps an interactive A2UI component.
 ///
-/// The [action] is the raw action string configured on the component (for
-/// example `platform:set_alarm` or `confirm_choice`), and [dataModel] is the
-/// component payload resolved by the A2UI surface renderer.
+/// The [action] is the action string configured on the component, [dataModel]
+/// is the surface data model after the interaction, and [surfaceId] identifies
+/// the surface that owns the component.
 class HandleA2UIActionEvent extends HarnessSessionEvent {
-  /// Raw action declared on the A2UI component.
+  /// Surface that owns the component.
+  final String surfaceId;
+
+  /// Component that fired the action.
+  final String componentId;
+
+  /// Action declared on the A2UI component.
   final String action;
 
-  /// Payload bound to the component when the action fired.
+  /// Surface data model after the component interaction.
   final Map<String, dynamic> dataModel;
 
   const HandleA2UIActionEvent({
+    required this.surfaceId,
+    required this.componentId,
     required this.action,
     required this.dataModel,
   });
 
   @override
-  List<Object?> get props => [action, dataModel];
+  List<Object?> get props => [surfaceId, componentId, action, dataModel];
+}
+
+/// Dispatched when a stateful A2UI component changes value without starting a
+/// model turn.
+///
+/// Used for in-progress input state such as typing in a text field or dragging
+/// a slider. The value is written to the live surface data model so bindings
+/// update immediately.
+class UpdateA2UISurfaceDataEvent extends HarnessSessionEvent {
+  /// Surface that owns the component.
+  final String surfaceId;
+
+  /// RFC 6901 JSON Pointer path to update.
+  final String path;
+
+  /// New value at [path].
+  final dynamic value;
+
+  const UpdateA2UISurfaceDataEvent({
+    required this.surfaceId,
+    required this.path,
+    required this.value,
+  });
+
+  @override
+  List<Object?> get props => [surfaceId, path, value];
 }
 
 /// Dispatched when a scheduled timer becomes due and should run its prompt.

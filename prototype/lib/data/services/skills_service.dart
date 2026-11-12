@@ -1,8 +1,56 @@
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import '../../core/models/installed_skill_package.dart';
 import '../../core/models/skill_metadata.dart';
 import '../../core/utils/file_system_manager.dart';
+
+/// Describes a skill package bundled inside the application.
+class BuiltinSkillDefinition {
+  final String name;
+  final String assetRoot;
+  final List<String> files;
+
+  const BuiltinSkillDefinition({
+    required this.name,
+    required this.assetRoot,
+    required this.files,
+  });
+}
+
+/// Built-in skills seeded into `<HarnessRoot>/skills/` on first run.
+const List<BuiltinSkillDefinition> kBuiltinSkills = [
+  BuiltinSkillDefinition(
+    name: 'a2ui-basic',
+    assetRoot: 'assets/builtin_skills/a2ui-basic',
+    files: [
+      'SKILL.md',
+      'references/messages.md',
+      'references/components/index.md',
+      'references/components/text.md',
+      'references/components/image.md',
+      'references/components/icon.md',
+      'references/components/video.md',
+      'references/components/audio-player.md',
+      'references/components/row.md',
+      'references/components/column.md',
+      'references/components/list.md',
+      'references/components/card.md',
+      'references/components/tabs.md',
+      'references/components/modal.md',
+      'references/components/divider.md',
+      'references/components/button.md',
+      'references/components/text-field.md',
+      'references/components/check-box.md',
+      'references/components/choice-picker.md',
+      'references/components/slider.md',
+      'references/components/date-time-input.md',
+      'references/examples/card.md',
+      'references/examples/form.md',
+      'references/examples/list.md',
+    ],
+  ),
+];
 
 /// Service managing on-device skill packages stored in `<HarnessRoot>/skills/`.
 ///
@@ -170,6 +218,99 @@ class SkillsService {
     return null;
   }
 
+  /// Returns the built-in definition for [name], if one exists.
+  BuiltinSkillDefinition? builtinSkillDefinition(String name) {
+    for (final definition in kBuiltinSkills) {
+      if (definition.name == name) return definition;
+    }
+    return null;
+  }
+
+  /// True when [name] is a built-in skill.
+  bool isBuiltinSkill(String name) => builtinSkillDefinition(name) != null;
+
+  /// Seeds bundled skills into `<HarnessRoot>/skills/` on first run.
+  ///
+  /// Existing skills are left untouched unless [overwriteLocked] is true.
+  Future<void> seedBuiltinSkills({bool overwriteLocked = false}) async {
+    final fs = fileSystem;
+    if (fs == null) return;
+
+    final marker = File(
+      p.join(fs.skillsDir.path, '.builtin_skills_seeded'),
+    );
+    if (!overwriteLocked && marker.existsSync()) return;
+
+    for (final definition in kBuiltinSkills) {
+      final destination = Directory(p.join(fs.skillsDir.path, definition.name));
+      final skillFile = File(p.join(destination.path, 'SKILL.md'));
+      if (skillFile.existsSync() && !overwriteLocked) continue;
+      await _installBuiltinSkill(definition, destination);
+    }
+
+    await marker.writeAsString(
+      DateTime.now().toUtc().toIso8601String(),
+      flush: true,
+    );
+  }
+
+  /// Restores a bundled skill, overwriting any local edits.
+  Future<void> restoreBuiltinSkill(String name) async {
+    final definition = builtinSkillDefinition(name);
+    if (definition == null) {
+      throw SkillImportException('Skill "$name" is not a built-in skill.');
+    }
+    final fs = fileSystem;
+    if (fs == null) {
+      throw StateError('Storage is not initialized.');
+    }
+
+    final destination = Directory(p.join(fs.skillsDir.path, definition.name));
+    await _installBuiltinSkill(definition, destination);
+  }
+
+  /// Copies a bundled skill into a staging directory, then swaps it into place.
+  ///
+  /// A failed copy leaves the existing skill untouched.
+  Future<void> _installBuiltinSkill(
+    BuiltinSkillDefinition definition,
+    Directory destination,
+  ) async {
+    final staging = Directory(
+      p.join(
+        destination.parent.path,
+        '.builtin_${definition.name}_${DateTime.now().microsecondsSinceEpoch}',
+      ),
+    );
+
+    try {
+      await _copyBuiltinSkill(definition, staging);
+      if (destination.existsSync()) {
+        await destination.delete(recursive: true);
+      }
+      await staging.rename(destination.path);
+    } catch (_) {
+      if (staging.existsSync()) {
+        await staging.delete(recursive: true);
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _copyBuiltinSkill(
+    BuiltinSkillDefinition definition,
+    Directory destination,
+  ) async {
+    await destination.create(recursive: true);
+    for (final relativePath in definition.files) {
+      final assetPath = '${definition.assetRoot}/$relativePath';
+      final content = await rootBundle.loadString(assetPath);
+      final target = File(p.join(destination.path, relativePath));
+      await target.parent.create(recursive: true);
+      await target.writeAsString(content, flush: true);
+    }
+  }
+
   /// Validates a directory selected from device storage before import.
   ///
   /// A valid package contains a `SKILL.md` whose frontmatter or Markdown
@@ -217,6 +358,13 @@ class SkillsService {
     }
   }
 
+  /// True when the installed skill has `metadata.lock: true`.
+  bool isSkillLocked(String name) {
+    final content = readSkill(name);
+    if (content == null) return false;
+    return parseFrontmatter(content, name)?.isLocked ?? false;
+  }
+
   /// True when a skill directory with [name] already exists.
   bool skillExists(String name) {
     final fs = fileSystem;
@@ -242,6 +390,18 @@ class SkillsService {
     final destination = Directory(p.join(fs.skillsDir.path, name));
     if (destination.existsSync() && !overwrite) {
       throw SkillAlreadyExistsException(name);
+    }
+    if (destination.existsSync() && overwrite) {
+      final existingSkill = File(p.join(destination.path, 'SKILL.md'));
+      if (existingSkill.existsSync()) {
+        final metadata = parseFrontmatter(
+          existingSkill.readAsStringSync(),
+          name,
+        );
+        if (metadata?.isLocked == true) {
+          throw SkillLockedException(name);
+        }
+      }
     }
 
     final staging = Directory(
@@ -302,38 +462,79 @@ class SkillsService {
     String? name;
     String? description;
     String? version;
+    var isLocked = false;
 
     // Check for standard YAML frontmatter:
     // ---
     // name: ...
     // description: ...
-    // version: ...
+    // metadata:
+    //   lock: true
     // ---
     if (clean.startsWith('---')) {
       final endIndex = clean.indexOf('---', 3);
       if (endIndex != -1) {
         final yamlBlock = clean.substring(3, endIndex);
         final lines = yamlBlock.split(RegExp(r'\r?\n'));
+        var inMetadata = false;
+        var metadataIndent = 0;
+
+        String unquote(String value) {
+          if ((value.startsWith('"') && value.endsWith('"')) ||
+              (value.startsWith("'") && value.endsWith("'"))) {
+            return value.substring(1, value.length - 1).trim();
+          }
+          return value;
+        }
+
+        void parseTopLevel(String trimmed) {
+          final colonIndex = trimmed.indexOf(':');
+          if (colonIndex == -1) return;
+          final key = trimmed.substring(0, colonIndex).trim().toLowerCase();
+          final value = unquote(trimmed.substring(colonIndex + 1).trim());
+          if (key == 'name') {
+            name = value;
+          } else if (key == 'description') {
+            description = value;
+          } else if (key == 'version') {
+            version = value;
+          }
+        }
+
         for (final line in lines) {
           final trimmed = line.trim();
           if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
 
-          final colonIndex = trimmed.indexOf(':');
-          if (colonIndex != -1) {
-            final key = trimmed.substring(0, colonIndex).trim().toLowerCase();
-            var value = trimmed.substring(colonIndex + 1).trim();
-            if ((value.startsWith('"') && value.endsWith('"')) ||
-                (value.startsWith("'") && value.endsWith("'"))) {
-              value = value.substring(1, value.length - 1).trim();
+          final indent = line.length - line.trimLeft().length;
+          if (!inMetadata) {
+            if (trimmed.toLowerCase() == 'metadata:') {
+              inMetadata = true;
+              metadataIndent = indent;
+              continue;
             }
+            parseTopLevel(trimmed);
+            continue;
+          }
 
-            if (key == 'name') {
-              name = value;
-            } else if (key == 'description') {
-              description = value;
-            } else if (key == 'version') {
-              version = value;
+          if (indent <= metadataIndent) {
+            inMetadata = false;
+            if (trimmed.toLowerCase() == 'metadata:') {
+              inMetadata = true;
+              metadataIndent = indent;
+              continue;
             }
+            parseTopLevel(trimmed);
+            continue;
+          }
+
+          final colonIndex = trimmed.indexOf(':');
+          if (colonIndex == -1) continue;
+          final key = trimmed.substring(0, colonIndex).trim().toLowerCase();
+          final value = unquote(trimmed.substring(colonIndex + 1).trim());
+          if (key == 'lock') {
+            isLocked = value.toLowerCase() == 'true';
+          } else if (key == 'version' && version == null) {
+            version = value;
           }
         }
       }
@@ -355,24 +556,24 @@ class SkillsService {
       }
     }
 
-    name ??= fallbackName;
-    name = name
+    var resolvedName = (name ?? fallbackName)
         .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
         .replaceAll(RegExp(r'^-+|-+$'), '');
-    if (name.isEmpty) name = fallbackName.toLowerCase();
+    if (resolvedName.isEmpty) resolvedName = fallbackName.toLowerCase();
 
-    description ??= 'Custom skill: $name';
-    if (description.length > 256) {
-      description = '${description.substring(0, 253)}...';
+    var resolvedDescription = description ?? 'Custom skill: $resolvedName';
+    if (resolvedDescription.length > 256) {
+      resolvedDescription = '${resolvedDescription.substring(0, 253)}...';
     }
-    version ??= '1.0.0';
+    final resolvedVersion = version ?? '1.0.0';
 
     try {
       return SkillMetadata(
-        name: name,
-        description: description,
-        version: version,
+        name: resolvedName,
+        description: resolvedDescription,
+        version: resolvedVersion,
+        isLocked: isLocked,
       );
     } catch (_) {
       return null;
@@ -428,6 +629,18 @@ class SkillAlreadyExistsException implements Exception {
 
   @override
   String toString() => 'A skill named "$name" is already installed.';
+}
+
+/// Thrown when an import tries to overwrite a UI-locked built-in skill.
+class SkillLockedException implements Exception {
+  /// Locked skill name.
+  final String name;
+
+  const SkillLockedException(this.name);
+
+  @override
+  String toString() =>
+      'Skill "$name" is built in and cannot be overwritten by an import.';
 }
 
 /// Thrown when a skill package cannot be copied.

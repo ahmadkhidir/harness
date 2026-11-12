@@ -1,6 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:harness/core/engine/engine.dart';
+import 'package:harness/core/engine/engine_events.dart';
+import 'package:harness/core/engine/harness_engine.dart';
+import 'package:harness/core/engine/context_builder.dart';
+import 'package:harness/core/engine/command_router.dart';
 import 'package:harness/core/models/models.dart';
+import 'package:harness/modules/a2ui/a2ui_surface_store.dart';
 import 'package:harness/modules/base/harness_module.dart';
 import 'package:harness/providers/model_provider.dart';
 
@@ -49,9 +53,7 @@ class ScriptedModelProvider extends ModelProvider {
     String? apiKey,
   }) async {
     recordedCalls.add(List.from(messages));
-    if (_index < script.length) {
-      return script[_index++];
-    }
+    if (_index < script.length) return script[_index++];
     return script.last;
   }
 
@@ -72,298 +74,156 @@ class ScriptedModelProvider extends ModelProvider {
 }
 
 void main() {
+  late CommandRouter router;
+  late ContextBuilder contextBuilder;
+
+  setUp(() {
+    router = CommandRouter()..registerModule(MockToolModule());
+    contextBuilder = ContextBuilder();
+  });
+
   group('HarnessEngine - Autonomous Multi-Turn Execution Loop', () {
-    late CommandRouter router;
-    late ContextBuilder contextBuilder;
-
-    setUp(() {
-      router = CommandRouter()..registerModule(MockToolModule());
-      contextBuilder = ContextBuilder();
-    });
-
-    test('coordinates multi-turn tool calling through to final delivery', () async {
-      // Script:
-      // Turn 1: Emits fetch_data tool call
-      // Turn 2: Receives observation and delivers final Markdown message
-      final scriptedProvider = ScriptedModelProvider(script: [
-        '''
-I need to query data first.
-<system_call>
-{"command": "fetch_data", "parameters": {"id": "1"}}
-</system_call>
-''',
-        '''
-<system_call>
-{"command": "send_message", "parameters": {"text": "Retrieved data successfully: data_value_42"}}
-</system_call>
-''',
+    test('coordinates a tool loop through to final text delivery', () async {
+      final provider = ScriptedModelProvider(script: [
+        '<system_call>{"command": "fetch_data", "parameters": {"id": "1"}}</system_call>',
+        '<system_call>{"command": "send_ui_message", "parameters": {"message": "Retrieved data successfully: data_value_42"}}</system_call>',
       ]);
 
       final engine = HarnessEngine(
         router: router,
         contextBuilder: contextBuilder,
-        modelProvider: scriptedProvider,
+        modelProvider: provider,
       );
 
-      final events = <EngineProgressEvent>[];
-      await for (final event in engine.executeTurn(
-        userPrompt: 'Fetch my data',
-        sessionId: 'sess_test_1',
-      )) {
-        events.add(event);
-      }
+      final events = await engine
+          .executeTurn(userPrompt: 'Fetch my data', sessionId: 'sess_test_1')
+          .toList();
 
-      // Check event stream sequence
       expect(events[0], isA<EngineTurnStarted>());
       expect(events[1], isA<EngineModelGenerating>());
       expect(events[2], isA<EngineSystemCallStarted>());
       expect(events[3], isA<EngineSystemCallFinished>());
-      expect(events[4], isA<EngineModelGenerating>());
-      expect(events[5], isA<EngineTurnCompleted>());
 
-      final completedEvent = events.last as EngineTurnCompleted;
-      expect(completedEvent.turn.text, 'Retrieved data successfully: data_value_42');
-      expect(completedEvent.turn.isAgent, isTrue);
-      expect(completedEvent.turn.toolCalls.length, 1);
-      expect(completedEvent.turn.toolCalls.first.call.command, 'fetch_data');
-      expect(completedEvent.turn.toolCalls.first.status, 'success');
-      expect(completedEvent.turn.toolCalls.first.output, 'data_value_42');
+      final completed = events.last as EngineTurnCompleted;
+      expect(completed.turn.text, 'Retrieved data successfully: data_value_42');
+      expect(completed.turn.toolCalls.length, 1);
+      expect(completed.turn.toolCalls.first.call.command, 'fetch_data');
+      expect(completed.turn.toolCalls.first.status, 'success');
     });
 
-    test('recovers from unclosed system_call tag without leaking raw tags', () async {
-      final unclosedProvider = ScriptedModelProvider(script: [
-        '<system_call>{"command": "send_message", "parameters": {"text": "### Scene 1: The Gold...',
+    test('recovers from an unclosed delivery without leaking tags', () async {
+      final provider = ScriptedModelProvider(script: [
+        '<system_call>{"command": "send_ui_message", "parameters": {"message": "### Scene 1: The Gold...',
       ]);
 
       final engine = HarnessEngine(
         router: router,
         contextBuilder: contextBuilder,
-        modelProvider: unclosedProvider,
+        modelProvider: provider,
       );
 
-      final events = <EngineProgressEvent>[];
-      await for (final event in engine.executeTurn(
-        userPrompt: 'Tell me a scene',
-        sessionId: 'sess_unclosed',
-      )) {
-        events.add(event);
-      }
+      final events = await engine
+          .executeTurn(userPrompt: 'Tell me a scene', sessionId: 'sess_unclosed')
+          .toList();
 
-      final completedEvent = events.last as EngineTurnCompleted;
-      expect(completedEvent.turn.text, startsWith('### Scene 1: The Gold'));
-      expect(completedEvent.turn.text?.contains('<system_call>'), isFalse);
+      final completed = events.last as EngineTurnCompleted;
+      expect(completed.turn.text, startsWith('### Scene 1: The Gold'));
+      expect(completed.turn.text, isNot(contains('<system_call>')));
     });
 
-    test('halts and emits error when maxTurns limit is exceeded', () async {
-      // Provider that emits tool calls indefinitely
-      final infiniteLoopProvider = ScriptedModelProvider(script: [
+    test('halts when the maximum turn limit is exceeded', () async {
+      final provider = ScriptedModelProvider(script: [
         '<system_call>{"command": "fetch_data", "parameters": {}}</system_call>',
       ]);
 
       final engine = HarnessEngine(
         router: router,
         contextBuilder: contextBuilder,
-        modelProvider: infiniteLoopProvider,
-        maxTurns: 3, // Set low limit for testing
+        modelProvider: provider,
+        maxTurns: 3,
       );
 
-      final events = <EngineProgressEvent>[];
-      await for (final event in engine.executeTurn(
-        userPrompt: 'Infinite task',
-        sessionId: 'sess_test_2',
-      )) {
-        events.add(event);
-      }
+      final events = await engine
+          .executeTurn(userPrompt: 'Infinite task', sessionId: 'sess_test_2')
+          .toList();
 
-      final errorEvent = events.last as EngineErrorOccurred;
-      expect(errorEvent.message.contains('exceeded maximum turn limit (3 turns)'), isTrue);
+      final error = events.last as EngineErrorOccurred;
+      expect(error.message, contains('exceeded maximum turn limit (3 turns)'));
     });
 
-    test('self-healing A2UI loop: catches empty or invalid A2UI components and loops back for repair', () async {
-      // Turn 1: Model emits invalid A2UI with 0 components
-      // Turn 2: Model receives error observation and repairs output with valid components
-      final healingProvider = ScriptedModelProvider(script: [
-        '''
-<system_call>
-{
-  "command": "send_a2ui",
-  "parameters": {
-    "text": "Here is the broken card:",
-    "messages": [
-      {
-        "version": "1.0",
-        "createSurface": {
-          "surfaceId": "main",
-          "catalogId": "basic/v1"
-        }
-      }
-    ]
-  }
-}
-</system_call>
-''',
-        '''
-<system_call>
-{
-  "command": "send_a2ui",
-  "parameters": {
-    "text": "Here is the corrected card:",
-    "messages": [
-      {
-        "version": "1.0",
-        "createSurface": {
-          "surfaceId": "main",
-          "catalogId": "basic/v1",
-          "components": [
-            {
-              "id": "root",
-              "component": "Text",
-              "text": "Repaired Card Content"
-            }
-          ]
-        }
-      }
-    ]
-  }
-}
-</system_call>
-''',
+    test('repairs an invalid A2UI surface and completes', () async {
+      final provider = ScriptedModelProvider(script: [
+        '<system_call>{"command": "send_ui_message", "parameters": {"message": {"a2ui": ['
+            '{"version": "1.0", "createSurface": {"surfaceId": "main", "catalogId": "basic/v1", "components": [{"id": "root", "component": "Card"}]}}'
+            ']}}}</system_call>',
+        '<system_call>{"command": "send_ui_message", "parameters": {"message": {"a2ui": ['
+            '{"version": "1.0", "createSurface": {"surfaceId": "main", "catalogId": "basic/v1"}},'
+            '{"version": "1.0", "updateComponents": {"surfaceId": "main", "components": [{"id": "root", "component": "Card", "child": "title"}, {"id": "title", "component": "Text", "text": "Fixed"}]}}'
+            ']}}}</system_call>',
+      ]);
+
+      final store = A2UISurfaceStore();
+      final engine = HarnessEngine(
+        router: router,
+        contextBuilder: contextBuilder,
+        modelProvider: provider,
+      );
+
+      final events = await engine
+          .executeTurn(
+            userPrompt: 'Show card',
+            sessionId: 'sess_heal',
+            surfaceStore: store,
+          )
+          .toList();
+
+      expect(provider.recordedCalls.length, 2);
+      expect(
+        provider.recordedCalls[1].last.content,
+        contains('system_response command="send_ui_message"'),
+      );
+
+      final completed = events.last as EngineTurnCompleted;
+      expect(completed.turn.contentType, 'a2ui');
+      expect(completed.turn.text, isNull);
+      expect(completed.turn.a2uiSurfaceId, 'main');
+      expect(store.surface('main')!.components['title']!['text'], 'Fixed');
+    });
+
+    test('injects the transcript and current request as one user message',
+        () async {
+      final provider = ScriptedModelProvider(script: [
+        '<system_call>{"command": "send_ui_message", "parameters": {"message": "Answer"}}</system_call>',
       ]);
 
       final engine = HarnessEngine(
         router: router,
         contextBuilder: contextBuilder,
-        modelProvider: healingProvider,
-      );
-
-      final events = <EngineProgressEvent>[];
-      await for (final event in engine.executeTurn(
-        userPrompt: 'Show card',
-        sessionId: 'sess_heal',
-      )) {
-        events.add(event);
-      }
-
-      // Verify that engine did NOT stop on the first broken A2UI call!
-      expect(healingProvider.recordedCalls.length, 2);
-      final secondTurnMessages = healingProvider.recordedCalls[1];
-      final systemResponseMsg = secondTurnMessages.last.content;
-      expect(systemResponseMsg, contains('<system_response command="send_a2ui" status="error">'));
-      expect(systemResponseMsg, contains('No components defined for surface "main"'));
-
-      // Verify turn completed with the repaired A2UI surface
-      final completedEvent = events.last as EngineTurnCompleted;
-      expect(completedEvent.turn.contentType, equals('a2ui'));
-      expect(completedEvent.turn.text, equals('Here is the corrected card:'));
-      expect(completedEvent.turn.a2uiSurfaceId, equals('main'));
-      expect(completedEvent.turn.toolCalls.first.call.command, equals('send_a2ui'));
-      expect(completedEvent.turn.toolCalls.first.status, equals('error'));
-    });
-
-    test('injects the session transcript and current request as one user message', () async {
-      final contextProvider = ScriptedModelProvider(script: [
-        '<system_call>{"command": "send_message", "parameters": {"text": "Answer referencing previous context"}}</system_call>',
-      ]);
-
-      final engine = HarnessEngine(
-        router: router,
-        contextBuilder: contextBuilder,
-        modelProvider: contextProvider,
+        modelProvider: provider,
       );
 
       const transcript = 'USER: What is the capital of France?\n'
           'AGENT: The capital of France is Paris.';
 
-      await for (final _ in engine.executeTurn(
-        userPrompt: 'What is its population?',
-        sessionId: 'sess_hist',
-        sessionTranscript: transcript,
-      )) {}
+      await engine
+          .executeTurn(
+            userPrompt: 'What is its population?',
+            sessionId: 'sess_hist',
+            sessionTranscript: transcript,
+          )
+          .toList();
 
-      expect(contextProvider.recordedCalls.isNotEmpty, isTrue);
-      final messagesSent = contextProvider.recordedCalls.first;
-
-      // A single user message carries the transcript and the current request;
-      // no assistant messages are replayed from turns.json.
-      expect(messagesSent.length, 1);
-      expect(messagesSent.single.role, 'user');
-      final content = messagesSent.single.content;
-      expect(content, contains('<session_transcript>'));
-      expect(content, contains('What is the capital of France?'));
-      expect(content, contains('The capital of France is Paris.'));
-      expect(content, contains('<current_request>'));
-      expect(content, contains('What is its population?'));
-    });
-
-    test('strictly prevents falling back to plain text send_message when UI is requested in context', () async {
-      // Turn 1: User asks for interactive list. Model attempts to downgrade to send_message with plain text.
-      // Engine rejects downgrade and instructs model to deliver via send_a2ui.
-      // Turn 2: Model adheres and emits send_a2ui with valid components.
-      final antiDowngradeProvider = ScriptedModelProvider(script: [
-        '<system_call>{"command": "send_message", "parameters": {"text": "1. Luxembourg - \$143,320\\n2. Ireland - \$137,640"}}</system_call>',
-        '''
-<system_call>
-{
-  "command": "send_a2ui",
-  "parameters": {
-    "text": "Top Richest Countries",
-    "messages": [
-      {
-        "createSurface": {
-          "surfaceId": "main",
-          "catalogId": "basic/v1",
-          "components": [
-            {
-              "id": "root",
-              "component": "Card",
-              "child": "title_item"
-            },
-            {
-              "id": "title_item",
-              "component": "Text",
-              "text": "1. Luxembourg - \$143,320"
-            }
-          ]
-        }
-      }
-    ]
-  }
-}
-</system_call>
-''',
-      ]);
-
-      final engine = HarnessEngine(
-        router: router,
-        contextBuilder: contextBuilder,
-        modelProvider: antiDowngradeProvider,
-      );
-
-      final events = <EngineProgressEvent>[];
-      await for (final event in engine.executeTurn(
-        userPrompt: 'Show me an interactive list of the top richest countries',
-        sessionId: 'sess_anti_downgrade',
-      )) {
-        events.add(event);
-      }
-
-      // Verify that the engine looped twice and rejected the plain text fallback
-      expect(antiDowngradeProvider.recordedCalls.length, 2);
-      final turn2Input = antiDowngradeProvider.recordedCalls[1];
-      expect(turn2Input.last.content, contains('Modality Enforcement'));
-      expect(turn2Input.last.content, contains('Do NOT downgrade to plain text or send_message'));
-
-      // Verify that final delivery was A2UI
-      final completedEvent = events.last as EngineTurnCompleted;
-      expect(completedEvent.turn.contentType, equals('a2ui'));
-      expect(completedEvent.turn.a2uiSurfaceId, equals('main'));
-      expect(completedEvent.turn.text, equals('Top Richest Countries'));
+      final messages = provider.recordedCalls.first;
+      expect(messages.length, 1);
+      expect(messages.single.role, 'user');
+      expect(messages.single.content, contains('<session_transcript>'));
+      expect(messages.single.content, contains('<current_request>'));
     });
 
     test('retries once when the model returns an empty response', () async {
       final provider = ScriptedModelProvider(script: [
         '',
-        '<system_call>{"command": "send_message", "parameters": {"text": "Hello! How can I help?"}}</system_call>',
+        '<system_call>{"command": "send_ui_message", "parameters": {"message": "Hello! How can I help?"}}</system_call>',
       ]);
 
       final engine = HarnessEngine(
@@ -377,13 +237,16 @@ I need to query data first.
           .toList();
 
       expect(provider.recordedCalls.length, 2);
-      expect(provider.recordedCalls[1].last.content, contains('no user-visible text'));
-
+      expect(
+        provider.recordedCalls[1].last.content,
+        contains('send_ui_message'),
+      );
       final completed = events.last as EngineTurnCompleted;
-      expect(completed.turn.text, equals('Hello! How can I help?'));
+      expect(completed.turn.text, 'Hello! How can I help?');
     });
 
-    test('reports an error instead of persisting a blank turn after repeated empty replies', () async {
+    test('reports an error instead of a blank turn after repeated empty replies',
+        () async {
       final provider = ScriptedModelProvider(script: ['', '   ']);
 
       final engine = HarnessEngine(
@@ -402,4 +265,3 @@ I need to query data first.
     });
   });
 }
-

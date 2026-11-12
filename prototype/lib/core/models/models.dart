@@ -8,6 +8,8 @@ export 'a2ui_message.dart';
 export 'command_definition.dart';
 export 'context_line.dart';
 export 'installed_skill_package.dart';
+export 'model_token_limits.dart';
+export 'on_device_model_spec.dart';
 export 'provider_config.dart';
 export 'session.dart';
 export 'skill_metadata.dart';

@@ -1,6 +1,6 @@
 /// Standard A2UI v1 protocol message for constructing and updating declarative UI surfaces.
 ///
-/// Passed inside `send_a2ui` parameters.
+/// Passed inside the `a2ui` array of a `send_ui_message` delivery.
 /// Conforms to JSON Schema `https://harness.agent/schemas/a2ui-message.schema.json`.
 class A2UIMessage {
   /// A2UI specification version string (must be `"1.0"`).
@@ -15,11 +15,15 @@ class A2UIMessage {
   /// Supplies runtime data values bound via JSON Pointers (`@path`).
   final A2UIUpdateDataModel? updateDataModel;
 
+  /// Removes a surface and all of its components and data.
+  final A2UIDeleteSurface? deleteSurface;
+
   A2UIMessage({
     this.version = '1.0',
     this.createSurface,
     this.updateComponents,
     this.updateDataModel,
+    this.deleteSurface,
   }) {
     if (version != '1.0') {
       throw ArgumentError('A2UI version must be "1.0", got "$version".');
@@ -35,6 +39,7 @@ class A2UIMessage {
         'updateComponents': updateComponents!.toJson(),
       if (updateDataModel != null)
         'updateDataModel': updateDataModel!.toJson(),
+      if (deleteSurface != null) 'deleteSurface': deleteSurface!.toJson(),
     };
   }
 
@@ -54,6 +59,10 @@ class A2UIMessage {
       updateDataModel: json['updateDataModel'] != null
           ? A2UIUpdateDataModel.fromJson(
               Map<String, dynamic>.from(json['updateDataModel'] as Map))
+          : null,
+      deleteSurface: json['deleteSurface'] != null
+          ? A2UIDeleteSurface.fromJson(
+              Map<String, dynamic>.from(json['deleteSurface'] as Map))
           : null,
     );
   }
@@ -137,11 +146,15 @@ class A2UIUpdateDataModel {
   /// Target surface identifier.
   final String surfaceId;
 
-  /// Key-value dictionary containing runtime data values.
-  final Map<String, dynamic> value;
+  /// Optional RFC 6901 JSON Pointer. Defaults to `/`.
+  final String? path;
+
+  /// Runtime data value. A null value removes the key at [path].
+  final dynamic value;
 
   A2UIUpdateDataModel({
     required this.surfaceId,
+    this.path,
     required this.value,
   }) {
     if (surfaceId.trim().isEmpty) {
@@ -152,6 +165,7 @@ class A2UIUpdateDataModel {
   /// Serializes data model updates to a JSON map.
   Map<String, dynamic> toJson() => {
         'surfaceId': surfaceId,
+        if (path != null) 'path': path,
         'value': value,
       };
 
@@ -159,6 +173,26 @@ class A2UIUpdateDataModel {
   factory A2UIUpdateDataModel.fromJson(Map<String, dynamic> json) =>
       A2UIUpdateDataModel(
         surfaceId: json['surfaceId'] as String,
-        value: Map<String, dynamic>.from(json['value'] as Map),
+        path: json['path'] as String?,
+        value: json['value'],
       );
+}
+
+/// Removes an A2UI surface and all of its components and data.
+class A2UIDeleteSurface {
+  /// Target surface identifier.
+  final String surfaceId;
+
+  A2UIDeleteSurface({required this.surfaceId}) {
+    if (surfaceId.trim().isEmpty) {
+      throw ArgumentError('surfaceId cannot be empty.');
+    }
+  }
+
+  /// Serializes surface deletion to a JSON map.
+  Map<String, dynamic> toJson() => {'surfaceId': surfaceId};
+
+  /// Deserializes surface deletion from a JSON map.
+  factory A2UIDeleteSurface.fromJson(Map<String, dynamic> json) =>
+      A2UIDeleteSurface(surfaceId: json['surfaceId'] as String);
 }

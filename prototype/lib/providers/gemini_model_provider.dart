@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../core/models/command_definition.dart';
 import '../core/models/provider_config.dart';
+import 'model_http_retry.dart';
 import 'model_provider.dart';
 
 /// Adapter for Google Gemini models via the Gemini REST API.
@@ -122,10 +123,13 @@ class GeminiModelProvider extends ModelProvider {
       },
     };
 
-    final response = await c.post(
-      url,
+    final response = await ModelHttpRetry.post(
+      client: c,
+      url: url,
       headers: {'Content-Type': 'application/json'},
       body: json.encode(payload),
+      provider: 'gemini',
+      onRetry: emitRetry,
     );
 
     if (response.statusCode == 401 || response.statusCode == 403) {

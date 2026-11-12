@@ -1,3 +1,4 @@
+import 'package:harness/presentation/theme/harness_icons.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -104,9 +105,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
     }
 
-    expect(find.text('All Sessions'), findsOneWidget);
-    expect(find.text('No Sessions Yet'), findsOneWidget);
-    expect(find.text('Start First Session'), findsOneWidget);
+    expect(find.text('Sessions'), findsOneWidget);
+    expect(find.text('No sessions yet'), findsOneWidget);
+    expect(find.text('New session'), findsOneWidget);
   });
 
   testWidgets('SessionsScreen displays session cards with title, turn counts, context size, and active badge', (tester) async {
@@ -163,14 +164,14 @@ void main() {
     expect(find.text('Old Title'), findsOneWidget);
 
     // Open PopupMenu
-    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.tap(find.byIcon(HarnessIcons.more));
     await tester.pumpAndSettle();
 
     // Tap Rename
     await tester.tap(find.text('Rename'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Rename Session'), findsOneWidget);
+    expect(find.text('Rename session'), findsOneWidget);
 
     // Enter new title
     final textField = find.byType(TextField);
@@ -194,14 +195,14 @@ void main() {
     expect(find.text('Disposable Thread'), findsOneWidget);
 
     // Open PopupMenu
-    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.tap(find.byIcon(HarnessIcons.more));
     await tester.pumpAndSettle();
 
     // Tap Delete
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Delete Session?'), findsOneWidget);
+    expect(find.text('Delete session?'), findsOneWidget);
 
     // Confirm Delete
     await tester.tap(find.widgetWithText(FilledButton, 'Delete'));

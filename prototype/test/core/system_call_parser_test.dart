@@ -2,275 +2,191 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:harness/core/engine/system_call_parser.dart';
 
 void main() {
-  group('SystemCallParser - XML Extraction & Zero Thinking Leakage', () {
-    test('extracts single system call and isolates internal reasoning', () {
+  group('SystemCallParser - send_ui_message', () {
+    test('extracts a text delivery', () {
       const raw = '''
-Thinking about which file to read.
-I should inspect notes.txt first.
+I will answer directly.
 <system_call>
-{"command": "read_file", "parameters": {"path": "workspace/notes.txt"}}
-</system_call>
-Done thinking.
-''';
-
-      final output = SystemCallParser.parse(raw);
-      expect(output.hasSystemCalls, isTrue);
-      expect(output.systemCalls.length, 1);
-      expect(output.systemCalls.first.command, 'read_file');
-      expect(output.systemCalls.first.parameters['path'], 'workspace/notes.txt');
-
-      // Scratchpad text must contain the monologue
-      expect(output.scratchpadText.contains('Thinking about which file to read'), isTrue);
-      expect(output.scratchpadText.contains('Done thinking'), isTrue);
-
-      // No explicit delivery has occurred yet
-      expect(output.hasExplicitDelivery, isFalse);
-      expect(output.explicitTextMessage, isNull);
-    });
-
-    test('extracts multiple parallel system calls', () {
-      const raw = '''
-<system_call>
-{"command": "read_file", "parameters": {"path": "file1.txt"}}
-</system_call>
-<system_call>
-{"command": "web_search", "parameters": {"query": "Flutter agent"}}
+{"command": "send_ui_message", "parameters": {"message": "Here is the summary."}}
 </system_call>
 ''';
 
       final output = SystemCallParser.parse(raw);
-      expect(output.systemCalls.length, 2);
-      expect(output.systemCalls[0].command, 'read_file');
-      expect(output.systemCalls[1].command, 'web_search');
-      expect(output.hasExplicitDelivery, isFalse);
-    });
-
-    test('extracts explicit send_message delivery command', () {
-      const raw = '''
-Internal scratchpad note: user requested summary.
-<system_call>
-{"command": "send_message", "parameters": {"text": "Here is the summary of the project."}}
-</system_call>
-''';
-
-      final output = SystemCallParser.parse(raw);
-      expect(output.hasSystemCalls, isFalse);
       expect(output.hasExplicitDelivery, isTrue);
-      expect(output.explicitTextMessage, 'Here is the summary of the project.');
-      expect(output.scratchpadText.contains('Internal scratchpad note'), isTrue);
+      expect(output.explicitTextMessage, 'Here is the summary.');
+      expect(output.explicitA2UIPayload, isNull);
+      expect(output.scratchpadText, contains('I will answer directly.'));
     });
 
-    test('extracts explicit send_a2ui delivery command with companion text', () {
+    test('extracts an A2UI delivery and ignores companion text', () {
       const raw = '''
 <system_call>
 {
-  "command": "send_a2ui",
+  "command": "send_ui_message",
   "parameters": {
-    "text": "Card mounted:",
-    "messages": [
-      {
-        "version": "1.0",
-        "createSurface": {"surfaceId": "card_1", "catalogId": "basic/v1"}
-      }
-    ]
+    "message": {
+      "a2ui": [
+        {"version": "1.0", "createSurface": {"surfaceId": "main", "catalogId": "basic/v1"}}
+      ],
+      "text": "Here is your card."
+    }
   }
 }
 </system_call>
 ''';
 
       final output = SystemCallParser.parse(raw);
-      expect(output.hasSystemCalls, isFalse);
       expect(output.hasExplicitDelivery, isTrue);
-      expect(output.explicitTextMessage, 'Card mounted:');
+      expect(output.explicitTextMessage, isNull);
       expect(output.explicitA2UIPayload, isNotNull);
-      expect(output.explicitA2UIPayload?['messages'], isNotEmpty);
+      expect(output.explicitA2UIPayload!['messages'], isA<List>());
+      expect((output.explicitA2UIPayload!['messages'] as List).length, 1);
     });
 
-    test('falls back to text delivery when no XML tags exist', () {
-      const raw = 'Hello! How can I assist you with your project today?';
+    test('treats an empty message as no explicit delivery', () {
+      const raw =
+          '<system_call>{"command": "send_ui_message", "parameters": {"message": ""}}</system_call>';
       final output = SystemCallParser.parse(raw);
+      expect(output.hasExplicitDelivery, isFalse);
+    });
 
+    test('does not treat the old send_message command as delivery', () {
+      const raw =
+          '<system_call>{"command": "send_message", "parameters": {"text": "Old"}}</system_call>';
+      final output = SystemCallParser.parse(raw);
+      expect(output.hasExplicitDelivery, isFalse);
+    });
+
+    test('recovers an unclosed text delivery', () {
+      const raw =
+          '<system_call>{"command": "send_ui_message", "parameters": {"message": "### Scene 1: The Gold Key"';
+      final output = SystemCallParser.parse(raw);
+      expect(output.hasExplicitDelivery, isTrue);
+      expect(output.explicitTextMessage, startsWith('### Scene 1: The Gold Key'));
+      expect(output.explicitTextMessage, isNot(contains('<system_call>')));
+    });
+  });
+
+  group('SystemCallParser - tool calls', () {
+    test('extracts a normal system call', () {
+      const raw = '''
+<system_call>
+{"command": "read_file", "parameters": {"path": "primary/notes.txt"}}
+</system_call>
+''';
+
+      final output = SystemCallParser.parse(raw);
+      expect(output.hasSystemCalls, isTrue);
+      expect(output.systemCalls.single.command, 'read_file');
+      expect(output.systemCalls.single.parameters['path'], 'primary/notes.txt');
+    });
+
+    test('handles DSML send_ui_message text', () {
+      final raw =
+          '<\uFF5CDSML\uFF5Ccalls>\n'
+          '<\uFF5CDSML\uFF5Cinvoke name="send_ui_message">\n'
+          '<\uFF5CDSML\uFF5Cparameter name="message" string="true">'
+          'Hello from DeepSeek'
+          '</\uFF5CDSML\uFF5Cparameter>\n'
+          '</\uFF5CDSML\uFF5Cinvoke>\n'
+          '</\uFF5CDSML\uFF5Ccalls>';
+
+      final output = SystemCallParser.parse(raw);
+      expect(output.hasExplicitDelivery, isTrue);
+      expect(output.explicitTextMessage, 'Hello from DeepSeek');
+      expect(output.explicitTextMessage, isNot(contains('DSML')));
+    });
+
+    test('handles DSML send_ui_message A2UI object', () {
+      final raw =
+          '<\uFF5CDSML\uFF5Ccalls>\n'
+          '<\uFF5CDSML\uFF5Cinvoke name="send_ui_message">\n'
+          '<\uFF5CDSML\uFF5Cparameter name="message" string="false">'
+          '{"a2ui":[{"version":"1.0","createSurface":{"surfaceId":"main","catalogId":"basic/v1"}}]}'
+          '</\uFF5CDSML\uFF5Cparameter>\n'
+          '</\uFF5CDSML\uFF5Cinvoke>\n'
+          '</\uFF5CDSML\uFF5Ccalls>';
+
+      final output = SystemCallParser.parse(raw);
+      expect(output.hasExplicitDelivery, isTrue);
+      expect(output.explicitA2UIPayload, isNotNull);
+      expect(output.explicitA2UIPayload!['messages'], isA<List>());
+    });
+
+    test('records malformed JSON as a system call error', () {
+      const raw = '''
+<system_call>
+{"command": "read_file", "parameters": {"path": }
+</system_call>
+''';
+
+      final output = SystemCallParser.parse(raw);
+      expect(output.hasSystemCalls, isTrue);
+      expect(output.systemCalls.single.command, 'malformed_json_error');
+    });
+  });
+
+  group('SystemCallParser - bare delivery recovery', () {
+    const bareA2UI = '''
+{"a2ui": [{"version": "1.0", "createSurface": {"surfaceId": "tictactoe", "catalogId": "basic/v1"}}, {"version": "1.0", "updateDataModel": {"surfaceId": "tictactoe", "path": "/difficulty", "value": "balanced"}}]}
+''';
+
+    test('recovers an untagged a2ui object as an A2UI delivery', () {
+      final output = SystemCallParser.parse(bareA2UI);
       expect(output.hasSystemCalls, isFalse);
       expect(output.hasExplicitDelivery, isTrue);
+      expect(output.explicitTextMessage, isNull);
+      expect(output.explicitA2UIPayload, isNotNull);
+      expect((output.explicitA2UIPayload!['messages'] as List).length, 2);
+    });
+
+    test('recovers an untagged a2ui object inside a markdown fence', () {
+      final raw = '```json\n$bareA2UI\n```';
+      final output = SystemCallParser.parse(raw);
+      expect(output.hasExplicitDelivery, isTrue);
+      expect(output.explicitA2UIPayload, isNotNull);
+      expect((output.explicitA2UIPayload!['messages'] as List).length, 2);
+    });
+
+    test('recovers an untagged send_ui_message envelope', () {
+      const raw = '''
+{
+  "command": "send_ui_message",
+  "parameters": {
+    "message": {
+      "a2ui": [{"version": "1.0", "createSurface": {"surfaceId": "main", "catalogId": "basic/v1"}}]
+    }
+  }
+}
+''';
+
+      final output = SystemCallParser.parse(raw);
+      expect(output.hasExplicitDelivery, isTrue);
+      expect(output.explicitA2UIPayload, isNotNull);
+      expect((output.explicitA2UIPayload!['messages'] as List).length, 1);
+    });
+
+    test('recovers an untagged message-only text object', () {
+      const raw = '{"message": "Here is the summary."}';
+      final output = SystemCallParser.parse(raw);
+      expect(output.hasExplicitDelivery, isTrue);
+      expect(output.explicitTextMessage, 'Here is the summary.');
+      expect(output.explicitA2UIPayload, isNull);
+    });
+
+    test('leaves an unrelated JSON object as plain text', () {
+      const raw = '{"total": 3, "items": ["a", "b"]}';
+      final output = SystemCallParser.parse(raw);
+      expect(output.hasExplicitDelivery, isTrue);
+      expect(output.explicitA2UIPayload, isNull);
       expect(output.explicitTextMessage, raw);
-      expect(output.scratchpadText, isEmpty);
     });
 
-    test('treats empty send_message text as no explicit delivery', () {
-      const raw = '<system_call>{"command": "send_message", "parameters": {}}</system_call>';
+    test('does not recover an empty a2ui list', () {
+      const raw = '{"a2ui": []}';
       final output = SystemCallParser.parse(raw);
-
-      expect(output.hasExplicitDelivery, isFalse);
-      expect(output.systemCalls, isEmpty);
-    });
-
-    test('accepts top-level text when parameters are omitted', () {
-      const raw = '<system_call>{"command": "send_message", "text": "Hi there!"}</system_call>';
-      final output = SystemCallParser.parse(raw);
-
-      expect(output.hasExplicitDelivery, isTrue);
-      expect(output.explicitTextMessage, 'Hi there!');
-    });
-
-    test('captures malformed JSON inside system_call tags safely', () {
-      const raw = '''
-<system_call>
-{ invalid json here: missing quotes }
-</system_call>
-''';
-
-      final output = SystemCallParser.parse(raw);
-      expect(output.systemCalls.length, 1);
-      expect(output.systemCalls.first.command, 'malformed_json_error');
-    });
-
-    test('extracts explicit send_message from unclosed <system_call> tag without closing tag', () {
-      const raw = '<system_call>{"command": "send_message", "parameters": {"text": "### Scene 1: The Golden Key"}}';
-      final output = SystemCallParser.parse(raw);
-
-      expect(output.hasExplicitDelivery, isTrue);
-      expect(output.explicitTextMessage, '### Scene 1: The Golden Key');
-      expect(output.hasSystemCalls, isFalse);
-      expect(output.explicitTextMessage?.contains('<system_call>'), isFalse);
-    });
-
-    test('recovers send_message with unclosed JSON string and braces without closing tag', () {
-      const raw = '<system_call>{"command": "send_message", "parameters": {"text": "### Scene 1: The Gold...';
-      final output = SystemCallParser.parse(raw);
-
-      expect(output.hasExplicitDelivery, isTrue);
-      expect(output.explicitTextMessage, startsWith('### Scene 1: The Gold'));
-      expect(output.hasSystemCalls, isFalse);
-      expect(output.explicitTextMessage?.contains('<system_call>'), isFalse);
-    });
-
-    test('extracts tool call from unclosed <system_call> tag without closing tag', () {
-      const raw = '<system_call>{"command": "load_skill", "parameters": {"skill_name": "story_writer"}}';
-      final output = SystemCallParser.parse(raw);
-
-      expect(output.hasSystemCalls, isTrue);
-      expect(output.systemCalls.length, 1);
-      expect(output.systemCalls.first.command, 'load_skill');
-      expect(output.systemCalls.first.parameters['skill_name'], 'story_writer');
-      expect(output.hasExplicitDelivery, isFalse);
-    });
-
-    test('recovers tool call with unclosed JSON brackets from unclosed <system_call>', () {
-      const raw = '<system_call>{"command": "load_skill", "parameters": {"skill_name": "story_writer"';
-      final output = SystemCallParser.parse(raw);
-
-      expect(output.hasSystemCalls, isTrue);
-      expect(output.systemCalls.length, 1);
-      expect(output.systemCalls.first.command, 'load_skill');
-      expect(output.systemCalls.first.parameters['skill_name'], 'story_writer');
-    });
-
-    test('prevents raw <system_call> from leaking into fallback explicit text', () {
-      const raw = '<system_call>gibberish: [[[ not json at all';
-      final output = SystemCallParser.parse(raw);
-
-      // Must NOT leak <system_call> into user text
-      expect(output.explicitTextMessage, isNull);
-      expect(output.hasSystemCalls, isTrue);
-      expect(output.systemCalls.first.command, 'malformed_json_error');
-    });
-
-    test('strips markdown code fences (```json and ```xml) inside system_call block', () {
-      const raw = '''
-<system_call>
-```json
-{
-  "command": "send_a2ui",
-  "parameters": {
-    "text": "Card:",
-    "messages": [
-      {
-        "version": "1.0",
-        "createSurface": {"surfaceId": "card_fenced", "catalogId": "basic/v1"}
-      }
-    ]
-  }
-}
-```
-</system_call>
-''';
-      final output = SystemCallParser.parse(raw);
-      expect(output.hasSystemCalls, isFalse);
-      expect(output.hasExplicitDelivery, isTrue);
-      expect(output.explicitA2UIPayload, isNotNull);
-      expect(output.explicitTextMessage, equals('Card:'));
-    });
-
-    test('cleans trailing commas before closing braces and brackets in system_call', () {
-      const raw = '''
-<system_call>
-{
-  "command": "send_a2ui",
-  "parameters": {
-    "messages": [
-      {
-        "version": "1.0",
-        "createSurface": {
-          "surfaceId": "card_commas",
-          "components": [
-            {"id": "t1", "component": "Text", "text": "Hello",},
-          ],
-        },
-      },
-    ],
-  },
-}
-</system_call>
-''';
-      final output = SystemCallParser.parse(raw);
-      expect(output.hasSystemCalls, isFalse);
-      expect(output.hasExplicitDelivery, isTrue);
-      expect(output.explicitA2UIPayload, isNotNull);
-      expect(output.explicitA2UIPayload?['messages'], isNotEmpty);
-    });
-
-    test('reports exact line, column, and visual snippet on genuine syntax errors', () {
-      const raw = '''
-<system_call>
-{
-  "command": "load_skill",
-  "parameters": {
-    broken json without colon
-  }
-}
-</system_call>
-''';
-      final output = SystemCallParser.parse(raw);
-      expect(output.hasSystemCalls, isTrue);
-      expect(output.systemCalls.first.command, equals('malformed_json_error'));
-      final errorMsg = output.systemCalls.first.parameters['error']?.toString();
-      expect(errorMsg, contains('JSON Syntax Error at line'));
-      expect(errorMsg, contains('|'));
-      expect(errorMsg, contains('^'));
-    });
-
-    test('resiliently salvages send_a2ui messages from unclosed or truncated payload', () {
-      const raw = '''
-<system_call>
-{
-  "command": "send_a2ui",
-  "parameters": {
-    "text": "Partial flight card:",
-    "messages": [
-      {
-        "version": "1.0",
-        "createSurface": {
-          "surfaceId": "flight_card",
-          "catalogId": "basic/v1"
-        }
-      }
-''';
-      final output = SystemCallParser.parse(raw);
-      expect(output.hasExplicitDelivery, isTrue);
-      expect(output.explicitA2UIPayload, isNotNull);
-      expect(output.explicitTextMessage, equals('Partial flight card:'));
-      expect(output.explicitA2UIPayload?['messages'], isNotEmpty);
+      expect(output.explicitA2UIPayload, isNull);
+      expect(output.explicitTextMessage, raw);
     });
   });
 }
-

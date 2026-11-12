@@ -82,10 +82,11 @@ class MockOnDeviceEngine implements OnDeviceInferenceEngine {
     String prompt, {
     double temperature = 0.7,
     int maxTokens = 1024,
+    int contextWindowTokens = 4096,
     String? modelPath,
   }) async {
     if (onGenerate != null) return onGenerate!(prompt);
-    return 'On-device response: <system_call>{"command": "send_message", "parameters": {"text": "Device response"}}</system_call>';
+    return 'On-device response: <system_call>{"command": "send_ui_message", "parameters": {"message": "Device response"}}</system_call>';
   }
 
   @override
@@ -93,15 +94,16 @@ class MockOnDeviceEngine implements OnDeviceInferenceEngine {
     String prompt, {
     double temperature = 0.7,
     int maxTokens = 1024,
+    int contextWindowTokens = 4096,
     String? modelPath,
   }) async* {
     if (onStreamGenerate != null) {
       yield* onStreamGenerate!(prompt);
       return;
     }
-    yield '<system_call>{"command": "send_message", "parameters": ';
-    yield '{"text": "Streamed on-device token chunks"';
-    yield '}}</system_call>';
+    yield '<system_call>';
+    yield '{"command": "send_ui_message", "parameters": {"message": "Streamed on-device token chunks"}}';
+    yield '</system_call>';
   }
 
   @override
@@ -234,7 +236,7 @@ void main() {
                     'parts': [
                       {
                         'text':
-                            'Device status is healthy! <system_call>{"command": "send_message", "parameters": {"text": "All good"}}</system_call>',
+                            'Device status is healthy! <system_call>{"command": "send_ui_message", "parameters": {"message": "All good"}}</system_call>',
                       },
                     ],
                   },
@@ -367,7 +369,7 @@ void main() {
           final mockEngine = MockOnDeviceEngine(
             onStreamGenerate: (prompt) async* {
               yield '<system_call>';
-              yield '{"command": "send_message", "parameters": {"text": "Streamed on-device token chunks"}}';
+              yield '{"command": "send_ui_message", "parameters": {"message": "Streamed on-device token chunks"}}';
               yield '</system_call>';
             },
           );
@@ -388,7 +390,7 @@ void main() {
 
           expect(streamedChunks.isNotEmpty, isTrue);
           final completeText = streamedChunks.join();
-          expect(completeText, contains('send_message'));
+          expect(completeText, contains('send_ui_message'));
         },
       );
 

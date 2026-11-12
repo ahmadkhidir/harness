@@ -4,7 +4,7 @@
 /// an internal O(1) command lookup registry and injects the tool catalog into the system prompt.
 /// Conforms to JSON Schema `https://harness.agent/schemas/command-definition.schema.json`.
 class CommandDefinition {
-  /// Exact command name emitted in `<system_call>`, e.g. `load_skill`, `grep`, `send_a2ui`.
+  /// Exact command name emitted in `<system_call>`, e.g. `load_skill`, `grep`, `send_ui_message`.
   final String command;
 
   /// Natural language summary of the command explaining when and how the agent should invoke it.

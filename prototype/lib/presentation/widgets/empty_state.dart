@@ -1,21 +1,33 @@
 import 'package:flutter/material.dart';
 
-/// Shared empty state placeholder displayed when a conversation or list contains zero records.
+import '../theme/brand_mark.dart';
+import '../theme/harness_colors.dart';
+import '../theme/harness_icons.dart';
+import '../theme/harness_tokens.dart';
+
+/// Empty-session state shown before the first turn.
 ///
-/// Implements the EmptyState component from `docs/Harness/screens.md`.
+/// The brand mark replaces a pictogram icon: the frame and resting threads sit
+/// in secondary ink while the one raised thread carries the accent, following
+/// the one-active-line illustration direction in `docs/Harness/branding.md`.
 class EmptyState extends StatelessWidget {
+  /// Welcome heading.
   final String title;
+
+  /// One-sentence explanation of what the screen does.
   final String description;
-  final IconData icon;
+
+  /// Prompt suggestions that submit directly when tapped.
   final List<String> suggestionChips;
+
+  /// Callback for a tapped suggestion.
   final ValueChanged<String>? onSelectPrompt;
 
   const EmptyState({
     super.key,
-    this.title = 'Welcome to Harness',
+    this.title = 'Ready for a task',
     this.description =
-        'An autonomous, mobile-first agent runtime. Ask a question or assign a multi-step task to begin.',
-    this.icon = Icons.smart_toy_outlined,
+        'Ask a question or assign a multi-step job. Tool calls, results, and failures appear here as they happen.',
     this.suggestionChips = const [
       'Check system status',
       'What commands can you execute?',
@@ -26,61 +38,61 @@ class EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = HarnessColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
 
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+        padding: const EdgeInsets.symmetric(
+          horizontal: HarnessSpace.xxl,
+          vertical: HarnessSpace.xxl,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                icon,
-                size: 56,
-                color: theme.colorScheme.primary,
-              ),
+            HarnessMark(
+              size: 56,
+              accented: true,
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: HarnessSpace.xl),
             Text(
               title,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
+              style: textTheme.headlineSmall?.copyWith(
+                color: colors.textPrimary,
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 8),
-            Text(
-              description,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            if (suggestionChips.isNotEmpty) ...[
-              Text(
-                'Suggestions',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.outline,
+            const SizedBox(height: HarnessSpace.sm),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Text(
+                description,
+                style: textTheme.bodySmall?.copyWith(
+                  color: colors.textSecondary,
                 ),
+                textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 10),
+            ),
+            if (suggestionChips.isNotEmpty) ...[
+              const SizedBox(height: HarnessSpace.xl),
+              Text(
+                'Start with',
+                style: HarnessType.label.copyWith(color: colors.textSecondary),
+              ),
+              const SizedBox(height: HarnessSpace.md),
               Wrap(
-                spacing: 8,
-                runSpacing: 8,
+                spacing: HarnessSpace.sm,
+                runSpacing: HarnessSpace.sm,
                 alignment: WrapAlignment.center,
                 children: suggestionChips.map((chipText) {
                   return ActionChip(
                     label: Text(chipText),
                     onPressed: () => onSelectPrompt?.call(chipText),
-                    avatar: const Icon(Icons.arrow_outward_rounded, size: 16),
+                    avatar: Icon(
+                      HarnessIcons.arrowUpRight,
+                      size: HarnessSize.iconSm,
+                      color: colors.textSecondary,
+                    ),
                   );
                 }).toList(),
               ),
@@ -91,4 +103,3 @@ class EmptyState extends StatelessWidget {
     );
   }
 }
-

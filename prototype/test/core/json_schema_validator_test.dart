@@ -81,7 +81,7 @@ void main() {
       };
 
       final dataWithNestedError = {
-        'command': 'send_a2ui',
+        'command': 'send_ui_message',
         'parameters': {
           'messages': [
             {
@@ -113,7 +113,7 @@ void main() {
       expect(result.errors[1].message, contains('Required property "createSurface" is missing'));
 
       // Formatted summary contains locations
-      final summary = result.formatErrorSummary(contextName: 'send_a2ui');
+      final summary = result.formatErrorSummary(contextName: 'send_ui_message');
       expect(summary, contains('at /parameters/parameters/messages/1/createSurface/surfaceId'));
       expect(summary, contains('at /parameters/parameters/messages/2/createSurface'));
     });

@@ -2,13 +2,15 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/engine/engine_events.dart';
 import '../../core/engine/harness_engine.dart';
+import '../../core/models/model_token_limits.dart';
 import '../../core/models/scheduled_timer.dart';
-import '../../core/models/system_response.dart';
 import '../../core/models/turn.dart';
 import '../../data/secure_storage/key_storage_service.dart';
 import '../../data/services/session_service.dart';
 import '../../data/services/timer_service.dart';
-import '../../modules/platform_actions/a2ui_event_router.dart';
+import '../../modules/a2ui/a2ui_action_prompt.dart';
+import '../../modules/a2ui/a2ui_surface_store.dart';
+import '../../providers/model_provider.dart';
 import 'harness_session_event.dart';
 import 'harness_session_state.dart';
 
@@ -29,10 +31,8 @@ class HarnessSessionBloc
   /// Scheduled self-prompt timers (FEAT-010).
   final TimerService? timerService;
 
-  /// Routes A2UI button taps to native platform actions or new user turns.
-  final A2UIEventRouter a2uiEventRouter;
-
   StreamSubscription<EngineProgressEvent>? _engineSubscription;
+  StreamSubscription<ModelRetryEvent>? _retrySubscription;
 
   /// Prompt line waiting to be appended to `context.txt` after dispatch.
   String? _pendingUserContextPrompt;
@@ -43,19 +43,21 @@ class HarnessSessionBloc
   /// Timer whose self-prompt is currently executing.
   ScheduledTimer? _activeTimer;
 
+  /// Live A2UI surfaces for the active session.
+  A2UISurfaceStore _surfaceStore = A2UISurfaceStore();
+
   HarnessSessionBloc({
     required this.engine,
     this.keyStorage,
     this.sessionService,
     this.timerService,
-    A2UIEventRouter? a2uiEventRouter,
-  })  : a2uiEventRouter = a2uiEventRouter ?? const A2UIEventRouter(),
-        super(const HarnessSessionInitial()) {
+  }) : super(const HarnessSessionInitial()) {
     on<InitializeSessionEvent>(_onInitializeSession);
     on<SwitchSessionEvent>(_onSwitchSession);
     on<SubmitUserPromptEvent>(_onSubmitUserPrompt);
     on<RunScheduledTimerEvent>(_onRunScheduledTimer);
     on<HandleA2UIActionEvent>(_onHandleA2UIAction);
+    on<UpdateA2UISurfaceDataEvent>(_onUpdateA2UISurfaceData);
     on<SessionEngineProgressReceived>(_onEngineProgressReceived);
     on<CancelActiveTurnEvent>(_onCancelActiveTurn);
   }
@@ -78,7 +80,12 @@ class HarnessSessionBloc
     if (sessionService != null) {
       existingTurns = await sessionService!.loadTurns(targetId);
     }
-    emit(HarnessSessionReady(sessionId: targetId, turns: existingTurns));
+    _surfaceStore = _replaySurfaces(existingTurns);
+    emit(HarnessSessionReady(
+      sessionId: targetId,
+      turns: existingTurns,
+      surfaces: _surfaceStore.surfaces,
+    ));
     await _drainTimers(targetId, emit);
   }
 
@@ -88,6 +95,8 @@ class HarnessSessionBloc
   ) async {
     await _engineSubscription?.cancel();
     _engineSubscription = null;
+    await _retrySubscription?.cancel();
+    _retrySubscription = null;
     final interruptedTimer = _activeTimer;
     _activeTimer = null;
     if (interruptedTimer != null) {
@@ -97,9 +106,19 @@ class HarnessSessionBloc
     if (sessionService != null) {
       await sessionService!.setActiveSessionId(event.sessionId);
       final turns = await sessionService!.loadTurns(event.sessionId);
-      emit(HarnessSessionReady(sessionId: event.sessionId, turns: turns));
+      _surfaceStore = _replaySurfaces(turns);
+      emit(HarnessSessionReady(
+        sessionId: event.sessionId,
+        turns: turns,
+        surfaces: _surfaceStore.surfaces,
+      ));
     } else {
-      emit(HarnessSessionReady(sessionId: event.sessionId, turns: const []));
+      _surfaceStore = A2UISurfaceStore();
+      emit(HarnessSessionReady(
+        sessionId: event.sessionId,
+        turns: const [],
+        surfaces: _surfaceStore.surfaces,
+      ));
     }
     await _drainTimers(event.sessionId, emit);
   }
@@ -148,14 +167,13 @@ class HarnessSessionBloc
 
   /// Starts an engine turn for [prompt].
   ///
-  /// Direct prompts are persisted as visible user turns. A2UI selections pass
-  /// an [actionLabel] so the transcript shows a compact action receipt while
-  /// [prompt] (the structured payload) reaches the model and `context.txt`.
+  /// Direct prompts are persisted as visible user turns. A2UI actions and timer
+  /// prompts pass `showUserTurn: false`: the prompt reaches the model and
+  /// `context.txt`, but no user bubble or `turns.json` entry is created.
   Future<void> _startPrompt(
     String prompt,
     String? explicitApiKey,
     Emitter<HarnessSessionState> emit, {
-    String? actionLabel,
     bool showUserTurn = true,
     ScheduledTimer? timer,
   }) async {
@@ -175,23 +193,14 @@ class HarnessSessionBloc
 
     final userTurn = !showUserTurn
         ? null
-        : actionLabel != null
-            ? Turn(
-                id: 'turn_action_${DateTime.now().millisecondsSinceEpoch}',
-                sessionId: currentSessionId,
-                timestamp: DateTime.now().toUtc(),
-                sender: 'user',
-                contentType: 'action',
-                text: actionLabel,
-              )
-            : Turn(
-                id: 'turn_user_${DateTime.now().millisecondsSinceEpoch}',
-                sessionId: currentSessionId,
-                timestamp: DateTime.now().toUtc(),
-                sender: 'user',
-                contentType: 'text',
-                text: prompt,
-              );
+        : Turn(
+            id: 'turn_user_${DateTime.now().millisecondsSinceEpoch}',
+            sessionId: currentSessionId,
+            timestamp: DateTime.now().toUtc(),
+            sender: 'user',
+            contentType: 'text',
+            text: prompt,
+          );
 
     // UI log only. The matching USER line is appended after dispatch.
     if (userTurn != null && sessionService != null) {
@@ -210,6 +219,7 @@ class HarnessSessionBloc
     emit(HarnessTurnExecuting(
       sessionId: currentSessionId,
       turns: updatedTurns,
+      surfaces: _surfaceStore.surfaces,
       toolIndicators: const [],
       statusMessage: 'Thinking...',
     ));
@@ -222,12 +232,23 @@ class HarnessSessionBloc
     _pendingUserContextSessionId = currentSessionId;
 
     await _engineSubscription?.cancel();
+    await _retrySubscription?.cancel();
+    _retrySubscription = engine.modelProvider.retryEvents.listen((retry) {
+      if (isClosed) return;
+      add(SessionEngineProgressReceived(EngineModelRetryStatus(
+        waiting: retry.phase == ModelRetryPhase.waiting,
+        attempt: retry.attempt,
+        maxAttempts: retry.maxAttempts,
+        delay: retry.delay,
+      )));
+    });
     _engineSubscription = engine
         .executeTurn(
           userPrompt: prompt,
           sessionId: currentSessionId,
           apiKey: effectiveApiKey,
           sessionTranscript: transcript,
+          surfaceStore: _surfaceStore,
         )
         .listen(
           (progressEvent) => add(SessionEngineProgressReceived(progressEvent)),
@@ -239,65 +260,80 @@ class HarnessSessionBloc
         );
   }
 
-  /// Routes an A2UI component tap according to FEAT-007.
+  /// Sends an A2UI component action directly to the model.
   ///
-  /// Platform-prefixed actions execute immediately and never enter the model
-  /// loop. Conversational actions are converted into a structured user prompt
-  /// and submitted as a fresh engine turn.
+  /// The action is not added to the chat stream or `turns.json`. Its structured
+  /// prompt is appended to `context.txt` as the current user request. The
+  /// surface data model carried by the event is applied first so the model
+  /// receives the component's current state.
   Future<void> _onHandleA2UIAction(
     HandleA2UIActionEvent event,
     Emitter<HarnessSessionState> emit,
   ) async {
-    final route = a2uiEventRouter.resolve(event.action, event.dataModel);
+    final action = event.action.trim();
+    if (action.isEmpty) return;
 
-    switch (route.kind) {
-      case A2UIEventKind.conversationTurn:
-        await _startPrompt(
-          route.prompt!,
-          null,
-          emit,
-          actionLabel: _actionLabel(route.action),
-        );
-        return;
-      case A2UIEventKind.platformAction:
-        final response = await a2uiEventRouter.executePlatform(route);
-        _emitActionNotice(
-          emit,
-          message: _describePlatformResponse(route.command, response),
-          isError: response.isError,
-        );
-        return;
-      case A2UIEventKind.invalid:
-        _emitActionNotice(
-          emit,
-          message: route.errorMessage ?? 'Unable to handle this UI action.',
-          isError: true,
-        );
-        return;
-    }
+    await _startPrompt(
+      buildA2UIActionPrompt(
+        surfaceId: event.surfaceId,
+        componentId: event.componentId,
+        action: action,
+        payload: event.dataModel,
+      ),
+      null,
+      emit,
+      showUserTurn: false,
+    );
   }
 
-  /// Surfaces a transient platform-action result as [HarnessA2UIActionResolved].
+  /// Applies a local component value change without starting a model turn.
   ///
-  /// The chat screen listens for this state to show a snackbar. When a turn is
-  /// already executing, the previous state is re-emitted immediately afterwards
-  /// so in-flight progress handling keeps its tool indicators and the composer
-  /// keeps offering the stop control.
-  void _emitActionNotice(
-    Emitter<HarnessSessionState> emit, {
-    required String message,
-    required bool isError,
-  }) {
-    final previous = state;
-    emit(HarnessA2UIActionResolved(
-      sessionId: previous.sessionId ?? 'sess_default',
-      turns: previous.turns,
-      message: message,
-      isError: isError,
-    ));
-    if (previous is HarnessTurnExecuting) {
-      emit(previous);
+  /// Used by stateful inputs while the user is editing, such as typing in a
+  /// text field or dragging a slider. The value is written to the live surface
+  /// data model so every binding reflects it immediately.
+  void _onUpdateA2UISurfaceData(
+    UpdateA2UISurfaceDataEvent event,
+    Emitter<HarnessSessionState> emit,
+  ) {
+    _surfaceStore.setDataModelValue(
+      event.surfaceId,
+      event.path,
+      event.value,
+    );
+    _emitWithSurfaces(emit);
+  }
+
+  /// Re-emits the current session state with the latest live surfaces.
+  void _emitWithSurfaces(Emitter<HarnessSessionState> emit) {
+    final current = state;
+    if (current is HarnessTurnExecuting) {
+      emit(HarnessTurnExecuting(
+        sessionId: current.sessionId ?? 'sess_default',
+        turns: current.turns,
+        surfaces: _surfaceStore.surfaces,
+        toolIndicators: current.toolIndicators,
+        statusMessage: current.statusMessage,
+      ));
+      return;
     }
+    emit(HarnessSessionReady(
+      sessionId: current.sessionId ?? 'sess_default',
+      turns: current.turns,
+      surfaces: _surfaceStore.surfaces,
+    ));
+  }
+
+  /// Rebuilds live A2UI surfaces by replaying persisted A2UI turns.
+  A2UISurfaceStore _replaySurfaces(List<Turn> turns) {
+    final store = A2UISurfaceStore();
+    for (final turn in turns) {
+      if (!turn.isA2UI) continue;
+      final messages = turn.a2uiPayload?['messages'];
+      if (messages is List && messages.isNotEmpty) {
+        store.applyMessages(messages);
+      }
+    }
+    return store;
   }
 
   /// Computes the transcript budget used for compaction.
@@ -311,36 +347,10 @@ class HarnessSessionBloc
     final configuredWindow = config.extraConfig['contextWindowTokens'];
     final tokens = configuredWindow is int && configuredWindow > 0
         ? configuredWindow
-        : (isLocal ? 8192 : 100000);
+        : (isLocal ? localContextWindowTokensFor(config) : 100000);
     final rawBytes = (tokens * 0.4 * 3.5).round();
     final cap = isLocal ? 32000 : 200000;
     return rawBytes.clamp(4000, cap);
-  }
-
-  /// Converts an A2UI action identifier into a human-readable receipt label.
-  String _actionLabel(String action) {
-    final cleaned = action.replaceAll(RegExp(r'[_\-.]+'), ' ').trim();
-    if (cleaned.isEmpty) return 'Interface action';
-    return cleaned[0].toUpperCase() + cleaned.substring(1);
-  }
-
-  /// Produces a concise user-facing description of a platform action result.
-  String _describePlatformResponse(String? command, SystemResponse response) {
-    if (response.isError) {
-      return response.errorMessage ?? 'Platform action failed.';
-    }
-    switch (command) {
-      case 'set_alarm':
-        return 'Alarm scheduled.';
-      case 'schedule_notification':
-        return 'Notification scheduled.';
-      case 'open_url':
-        return 'Link opened.';
-      case 'copy_to_clipboard':
-        return 'Copied to clipboard.';
-      default:
-        return 'Action completed.';
-    }
   }
 
   Future<void> _onEngineProgressReceived(
@@ -370,8 +380,22 @@ class HarnessSessionBloc
         emit(HarnessTurnExecuting(
           sessionId: currentSessionId,
           turns: currentTurns,
+          surfaces: _surfaceStore.surfaces,
           toolIndicators: currentExecuting.toolIndicators,
           statusMessage: 'Thinking...',
+        ));
+      }
+    } else if (progress is EngineModelRetryStatus) {
+      if (state is HarnessTurnExecuting) {
+        final currentExecuting = state as HarnessTurnExecuting;
+        emit(HarnessTurnExecuting(
+          sessionId: currentSessionId,
+          turns: currentTurns,
+          surfaces: currentExecuting.surfaces,
+          toolIndicators: currentExecuting.toolIndicators,
+          statusMessage: progress.waiting
+              ? 'Retrying... (${progress.attempt}/${progress.maxAttempts})'
+              : 'Thinking...',
         ));
       }
     } else if (progress is EngineSystemCallStarted) {
@@ -389,6 +413,7 @@ class HarnessSessionBloc
       emit(HarnessTurnExecuting(
         sessionId: currentSessionId,
         turns: currentTurns,
+        surfaces: _surfaceStore.surfaces,
         toolIndicators: currentIndicators,
         statusMessage: 'Executing ${progress.call.command}...',
       ));
@@ -420,11 +445,14 @@ class HarnessSessionBloc
         emit(HarnessTurnExecuting(
           sessionId: currentSessionId,
           turns: currentTurns,
+          surfaces: _surfaceStore.surfaces,
           toolIndicators: updatedIndicators,
           statusMessage: 'Processed ${progress.call.command}',
         ));
       }
     } else if (progress is EngineTurnCompleted) {
+      await _retrySubscription?.cancel();
+      _retrySubscription = null;
       final turnWithTools = progress.turn.toolCalls.isNotEmpty
           ? progress.turn
           : (state is HarnessTurnExecuting &&
@@ -452,9 +480,12 @@ class HarnessSessionBloc
       emit(HarnessSessionReady(
         sessionId: currentSessionId,
         turns: updatedTurns,
+        surfaces: _surfaceStore.surfaces,
       ));
       await _drainTimers(currentSessionId, emit);
     } else if (progress is EngineErrorOccurred) {
+      await _retrySubscription?.cancel();
+      _retrySubscription = null;
       final failedTimer = _activeTimer;
       _activeTimer = null;
       if (failedTimer != null) {
@@ -472,6 +503,7 @@ class HarnessSessionBloc
       emit(HarnessSessionError(
         sessionId: currentSessionId,
         turns: currentTurns,
+        surfaces: _surfaceStore.surfaces,
         errorMessage: progress.message,
         isAuthError: isAuth,
         isMemoryError: isMem,
@@ -485,6 +517,8 @@ class HarnessSessionBloc
   ) async {
     await _engineSubscription?.cancel();
     _engineSubscription = null;
+    await _retrySubscription?.cancel();
+    _retrySubscription = null;
     final cancelledTimer = _activeTimer;
     _activeTimer = null;
     if (cancelledTimer != null) {
@@ -493,12 +527,14 @@ class HarnessSessionBloc
     emit(HarnessSessionReady(
       sessionId: state.sessionId ?? 'sess_default',
       turns: state.turns,
+      surfaces: _surfaceStore.surfaces,
     ));
   }
 
   @override
   Future<void> close() async {
     await _engineSubscription?.cancel();
+    await _retrySubscription?.cancel();
     return super.close();
   }
 }

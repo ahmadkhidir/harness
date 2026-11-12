@@ -35,6 +35,8 @@ class MockOnDeviceEngine implements OnDeviceInferenceEngine {
   final Stream<String> Function(String prompt)? onStreamGenerate;
   int memoryUsageMb;
   bool isUnloaded = false;
+  int? lastMaxTokens;
+  int? lastContextWindowTokens;
 
   MockOnDeviceEngine({
     this.onGenerate,
@@ -47,10 +49,13 @@ class MockOnDeviceEngine implements OnDeviceInferenceEngine {
     String prompt, {
     double temperature = 0.7,
     int maxTokens = 1024,
+    int contextWindowTokens = 4096,
     String? modelPath,
   }) async {
+    lastMaxTokens = maxTokens;
+    lastContextWindowTokens = contextWindowTokens;
     if (onGenerate != null) return onGenerate!(prompt);
-    return 'On-device response: <system_call>{"command": "send_message", "parameters": {"text": "Done"}}</system_call>';
+    return 'On-device response: <system_call>{"command": "send_ui_message", "parameters": {"message": "Done"}}</system_call>';
   }
 
   @override
@@ -58,8 +63,11 @@ class MockOnDeviceEngine implements OnDeviceInferenceEngine {
     String prompt, {
     double temperature = 0.7,
     int maxTokens = 1024,
+    int contextWindowTokens = 4096,
     String? modelPath,
   }) async* {
+    lastMaxTokens = maxTokens;
+    lastContextWindowTokens = contextWindowTokens;
     if (onStreamGenerate != null) {
       yield* onStreamGenerate!(prompt);
       return;
@@ -556,6 +564,46 @@ void main() {
       expect(text, equals('Response from local Llama 3'));
     });
 
+    test(
+        'OpenAICompatibleProvider sends the OpenCode session and client headers',
+        () async {
+      final config = ProviderConfig(
+        id: 'opencode',
+        providerType: 'openai_compatible',
+        displayName: 'OpenAI-compatible',
+        modelName: 'deepseek-v4.1-flash',
+        customEndpointUrl: 'https://opencode.ai/zen/go/v1',
+      );
+
+      String? sessionHeader;
+      String? userAgent;
+      final client = MockHttpClient((request) async {
+        sessionHeader = request.headers['x-opencode-session'];
+        userAgent = request.headers['user-agent'];
+
+        final responsePayload = {
+          'choices': [
+            {
+              'message': {'role': 'assistant', 'content': 'Hello from OpenCode'},
+            }
+          ]
+        };
+        return http.Response(json.encode(responsePayload), 200,
+            headers: {'content-type': 'application/json'});
+      });
+
+      final provider = OpenAICompatibleProvider(config: config, client: client)
+        ..sessionId = 'sess_test_123';
+      final text = await provider.generate(
+        messages: [const ModelMessage(role: 'user', content: 'Hello')],
+        apiKey: 'opencode_key',
+      );
+
+      expect(text, equals('Hello from OpenCode'));
+      expect(sessionHeader, equals('sess_test_123'));
+      expect(userAgent, equals('harness/1.0'));
+    });
+
     test('LocalDeviceModelProvider formats prompt and generates response via engine', () async {
       String receivedPrompt = '';
       final engine = MockOnDeviceEngine(
@@ -584,6 +632,28 @@ void main() {
       expect(receivedPrompt, contains('What is local?'));
       expect(response.systemCalls.length, equals(1));
       expect(response.systemCalls.first.command, equals('read_file'));
+    });
+
+    test('LocalDeviceModelProvider clamps output tokens and passes context separately', () async {
+      final engine = MockOnDeviceEngine();
+      final config = ProviderConfig(
+        id: 'local_device',
+        providerType: 'local_device',
+        displayName: 'On-Device SLM',
+        modelName: 'Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm',
+        maxOutputTokens: 16384,
+        extraConfig: const {
+          'selectedModelSpecId': 'qwen_2_5_1_5b',
+        },
+      );
+
+      final provider = LocalDeviceModelProvider(config: config, engine: engine);
+      await provider.generate(
+        messages: [const ModelMessage(role: 'user', content: 'Hello')],
+      );
+
+      expect(engine.lastMaxTokens, equals(1024));
+      expect(engine.lastContextWindowTokens, equals(4096));
     });
 
     test('LocalDeviceModelProvider halts when memory threshold is exceeded', () async {

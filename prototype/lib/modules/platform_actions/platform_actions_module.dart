@@ -13,8 +13,6 @@ import 'platform_action_gateway.dart';
 ///   times, URLs, or clipboard payloads are rejected as model-readable errors.
 /// - Translates denied OS permissions into the observation contract described
 ///   by the feature specification (for example `Permission denied for alarms`).
-/// - Serves as the execution surface used by A2UI button event routing, allowing
-///   `platform:` actions to run without starting another LLM turn.
 class PlatformActionsModule extends HarnessModule {
   /// Native capability adapter.
   final PlatformActionGateway gateway;

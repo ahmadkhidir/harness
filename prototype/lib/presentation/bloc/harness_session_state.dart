@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import '../../core/models/tool_execution_record.dart';
 import '../../core/models/turn.dart';
+import '../../modules/a2ui/a2ui_surface_store.dart';
 
 export '../../core/models/tool_execution_record.dart';
 
@@ -12,13 +13,17 @@ abstract class HarnessSessionState extends Equatable {
   final String? sessionId;
   final List<Turn> turns;
 
+  /// Live A2UI surfaces keyed by `surfaceId`.
+  final Map<String, A2UISurfaceState> surfaces;
+
   const HarnessSessionState({
     this.sessionId,
     this.turns = const [],
+    this.surfaces = const {},
   });
 
   @override
-  List<Object?> get props => [sessionId, turns];
+  List<Object?> get props => [sessionId, turns, surfaces];
 }
 
 /// Initial uninitialized session state.
@@ -31,34 +36,8 @@ class HarnessSessionReady extends HarnessSessionState {
   const HarnessSessionReady({
     required super.sessionId,
     super.turns = const [],
+    super.surfaces = const {},
   });
-}
-
-/// Result of a directly executed A2UI platform action.
-///
-/// Platform actions do not create an LLM turn, so the chat screen surfaces this
-/// transient result as a snackbar while leaving the conversation intact.
-class HarnessA2UIActionResolved extends HarnessSessionState {
-  /// Human-readable confirmation or failure message.
-  final String message;
-
-  /// True when the platform action failed (including denied permissions).
-  final bool isError;
-
-  /// Timestamp used to distinguish repeated identical resolutions so the UI can
-  /// show a fresh notice for every button tap.
-  final DateTime resolvedAt;
-
-  HarnessA2UIActionResolved({
-    required super.sessionId,
-    super.turns = const [],
-    required this.message,
-    this.isError = false,
-    DateTime? resolvedAt,
-  }) : resolvedAt = resolvedAt ?? DateTime.now();
-
-  @override
-  List<Object?> get props => [sessionId, turns, message, isError, resolvedAt];
 }
 
 /// Active turn is currently executing multi-turn tool loops.
@@ -72,12 +51,14 @@ class HarnessTurnExecuting extends HarnessSessionState {
   const HarnessTurnExecuting({
     required super.sessionId,
     required super.turns,
+    super.surfaces = const {},
     required this.toolIndicators,
     this.statusMessage = 'Thinking...',
   });
 
   @override
-  List<Object?> get props => [sessionId, turns, toolIndicators, statusMessage];
+  List<Object?> get props =>
+      [sessionId, turns, surfaces, toolIndicators, statusMessage];
 }
 
 /// An unrecoverable failure occurred during turn execution.
@@ -89,12 +70,14 @@ class HarnessSessionError extends HarnessSessionState {
   const HarnessSessionError({
     super.sessionId,
     super.turns = const [],
+    super.surfaces = const {},
     required this.errorMessage,
     this.isAuthError = false,
     this.isMemoryError = false,
   });
 
   @override
-  List<Object?> get props => [sessionId, turns, errorMessage, isAuthError, isMemoryError];
+  List<Object?> get props =>
+      [sessionId, turns, surfaces, errorMessage, isAuthError, isMemoryError];
 }
 

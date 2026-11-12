@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:path/path.dart' as p;
+
+import '../../core/models/model_token_limits.dart';
 import '../../core/models/on_device_model_spec.dart';
 import '../../core/models/provider_config.dart';
 import '../../core/utils/file_system_manager.dart';
@@ -15,6 +18,9 @@ import '../../data/services/model_download_service.dart';
 import '../bloc/model_switcher_bloc.dart';
 import '../bloc/model_switcher_event.dart';
 import '../bloc/model_switcher_state.dart';
+import '../theme/harness_colors.dart';
+import '../theme/harness_icons.dart';
+import '../theme/harness_tokens.dart';
 
 /// Predefined recommended models for cloud and server providers to allow quick selection,
 /// while still permitting any custom model identifier to be typed.
@@ -33,7 +39,7 @@ const Map<String, List<String>> kCloudProviderPresetModels = {
     'claude-3-opus-20240229',
   ],
   'openai': ['gpt-4o', 'gpt-4o-mini', 'o1', 'o3-mini', 'gpt-4-turbo'],
-  'ollama': [
+  'openai_compatible': [
     'llama3:8b',
     'llama3.2:3b',
     'llama3.2:1b',
@@ -75,7 +81,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _urlController = TextEditingController();
 
   double _temperature = 0.7;
-  int _maxOutputTokens = 4096;
+  int _maxOutputTokens = kDefaultRemoteMaxOutputTokens;
   bool _obscureKey = true;
 
   String? _currentRootPath;
@@ -192,7 +198,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Could not save bridge settings: $e'),
-          backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
     }
@@ -248,7 +253,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Could not set folder: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       }
@@ -256,6 +260,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _pickAndAddWorkspace() async {
+    final colors = HarnessColors.of(context);
     try {
       final selectedDirectory = await FilePicker.getDirectoryPath();
       if (selectedDirectory == null || selectedDirectory.isEmpty) return;
@@ -275,14 +280,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Text(
                   'Assign a virtual tag for the directory:\n$selectedDirectory\n\nThe model will access this directory as "<tag>/..."',
-                  style: const TextStyle(fontSize: 12),
+                  style: HarnessType.bodySm.copyWith(color: colors.textSecondary),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: tagController,
                   decoration: const InputDecoration(
                     labelText: 'Mount Tag (e.g. downloads, projects)',
-                    border: OutlineInputBorder(),
+                    
                   ),
                 ),
               ],
@@ -326,7 +331,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Could not mount directory: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       }
@@ -349,7 +353,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Could not unmount: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       }
@@ -376,13 +379,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _keyController.clear();
     _urlController.text = config.customEndpointUrl ?? '';
     _temperature = config.temperature;
-    _maxOutputTokens = config.maxOutputTokens;
+    _maxOutputTokens = resolveMaxOutputTokens(config);
     _syncedProviderId = config.id;
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = HarnessColors.of(context);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -395,10 +399,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ).showSnackBar(SnackBar(content: Text(state.notificationMessage!)));
           } else if (state is ModelSwitcherFailure) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(state.errorMessage),
-                backgroundColor: theme.colorScheme.error,
-              ),
+              SnackBar(content: Text(state.errorMessage)),
             );
           }
         },
@@ -412,11 +413,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                  const SizedBox(height: 12),
-                  Text(state.errorMessage),
-                  const SizedBox(height: 12),
-                  ElevatedButton(
+                  Icon(
+                    HarnessIcons.error,
+                    size: 48,
+                    color: colors.error.c500,
+                  ),
+                  const SizedBox(height: HarnessSpace.md),
+                  Text(
+                    state.errorMessage,
+                    style: HarnessType.bodySm.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: HarnessSpace.md),
+                  FilledButton(
                     onPressed: () => context.read<ModelSwitcherBloc>().add(
                       const LoadProviderConfigsEvent(),
                     ),
@@ -455,10 +466,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 // 1. Provider Dropdown Card
                 Card(
-                  elevation: 1,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -466,17 +473,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         Text(
                           'Provider Selection',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: theme.textTheme.titleMedium,
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
                           key: ValueKey(selectedConfig.id),
                           decoration: const InputDecoration(
                             labelText: 'Select Provider',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.hub_outlined),
+                            
+                            prefixIcon: Icon(HarnessIcons.provider),
                           ),
                           initialValue: selectedConfig.id,
                           items: configs.map((c) {
@@ -495,25 +500,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     ),
                                   ),
                                   if (isActive) ...[
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: HarnessSpace.sm),
                                     Container(
+                                      height: 22,
                                       padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 2,
+                                        horizontal: HarnessSpace.sm,
                                       ),
+                                      alignment: Alignment.center,
                                       decoration: BoxDecoration(
-                                        color:
-                                            theme.colorScheme.primaryContainer,
-                                        borderRadius: BorderRadius.circular(10),
+                                        color: colors.primary.c600,
+                                        borderRadius: BorderRadius.circular(
+                                          HarnessRadius.xs,
+                                        ),
                                       ),
                                       child: Text(
                                         'Active',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                          color: theme
-                                              .colorScheme
-                                              .onPrimaryContainer,
+                                        style: HarnessType.label.copyWith(
+                                          color: colors.primary.c100,
                                         ),
                                       ),
                                     ),
@@ -540,7 +543,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           SizedBox(
                             width: double.infinity,
                             child: FilledButton.tonalIcon(
-                              icon: const Icon(Icons.check_circle_outline),
+                              icon: const Icon(HarnessIcons.success),
                               label: Text(
                                 'Set ${selectedConfig.displayName} as Active',
                               ),
@@ -555,16 +558,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Row(
                             children: [
                               Icon(
-                                Icons.check_circle,
-                                color: theme.colorScheme.primary,
-                                size: 20,
+                                HarnessIcons.success,
+                                color: colors.success.c700,
+                                size: HarnessSize.iconMd,
                               ),
-                              const SizedBox(width: 8),
+                              const SizedBox(width: HarnessSpace.sm),
                               Text(
                                 '${selectedConfig.displayName} is currently active',
-                                style: TextStyle(
+                                style: HarnessType.bodySm.copyWith(
+                                  color: colors.success.c700,
                                   fontWeight: FontWeight.w600,
-                                  color: theme.colorScheme.primary,
                                 ),
                               ),
                             ],
@@ -577,10 +580,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // 2. Configuration Card for Selected Provider
                 Card(
-                  elevation: 1,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -588,9 +587,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         Text(
                           '${selectedConfig.displayName} Configuration',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: theme.textTheme.titleMedium,
                         ),
                         const Divider(height: 24),
 
@@ -625,9 +622,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildFilesystemCard(ThemeData theme) {
+    final colors = HarnessColors.of(context);
     return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -638,12 +634,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Text(
                   'Filesystem & Workspaces',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: theme.textTheme.titleMedium,
                 ),
                 IconButton(
-                  icon: const Icon(Icons.refresh, size: 20),
+                  icon: const Icon(HarnessIcons.refresh, size: 20),
                   onPressed: _loadFilesystemSettings,
                   tooltip: 'Refresh',
                 ),
@@ -653,7 +647,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text(
               'Harness root storage and mounted workspace directories.',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
+                color: colors.textSecondary,
               ),
             ),
             const Divider(height: 24),
@@ -661,21 +655,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             // 1. Primary User Root Path
             Text(
               'Filesystem',
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              style: theme.textTheme.titleSmall,
             ),
             const SizedBox(height: 6),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(
+                color: colors.border.withValues(
                   alpha: 0.4,
                 ),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: theme.colorScheme.outlineVariant.withValues(
+                  color: colors.border.withValues(
                     alpha: 0.5,
                   ),
                 ),
@@ -687,17 +679,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _currentRootPath ??
                         (HarnessFileSystem.instance?.rootDir.path ??
                             'Default Documents'),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontFamily: 'monospace',
-                    ),
+                    style: HarnessType.codeSm.copyWith(color: colors.textPrimary),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
-              icon: const Icon(Icons.folder_open, size: 16),
+              icon: const Icon(HarnessIcons.folderOpen, size: 16),
               label: const Text('Change Folder'),
               onPressed: _pickAndChangeRootFolder,
             ),
@@ -709,12 +698,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Text(
                   'Mounted Workspaces',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: theme.textTheme.titleSmall,
                 ),
                 TextButton.icon(
-                  icon: const Icon(Icons.add, size: 16),
+                  icon: const Icon(HarnessIcons.add, size: 16),
                   label: const Text('Add Workspace'),
                   onPressed: _pickAndAddWorkspace,
                 ),
@@ -726,14 +713,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.lock_outline, size: 20),
-              title: const Text(
-                'primary (Default Workspace)',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              leading: const Icon(HarnessIcons.lock, size: HarnessSize.iconMd),
+              title: Text(
+                'primary (default workspace)',
+                style: HarnessType.bodySm.copyWith(
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               subtitle: Text(
                 HarnessFileSystem.instance?.storageDir.path ?? 'storage/',
-                style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+                style: HarnessType.codeSm.copyWith(color: colors.textSecondary),
               ),
             ),
 
@@ -743,9 +733,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 8.0),
                 child: Text(
                   'No additional external workspaces mounted.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: theme.colorScheme.outline,
+                  style: HarnessType.bodySm.copyWith(
+                    color: colors.textSecondary,
                   ),
                 ),
               )
@@ -754,23 +743,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 return ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.folder_outlined, size: 20),
+                  leading: const Icon(HarnessIcons.folder, size: HarnessSize.iconMd),
                   title: Text(
                     entry.key,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
+                    style: HarnessType.bodySm.copyWith(
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   subtitle: Text(
                     entry.value,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontFamily: 'monospace',
+                    style: HarnessType.codeSm.copyWith(
+                      color: colors.textSecondary,
                     ),
                   ),
                   trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 18),
+                    icon: const Icon(HarnessIcons.trash, size: 18),
                     onPressed: () => _removeWorkspace(entry.key),
                     tooltip: 'Unmount workspace',
                   ),
@@ -787,27 +775,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required ProviderConfig config,
     required ThemeData theme,
   }) {
+    final colors = HarnessColors.of(context);
     final actualDownloadedIds = kSupportedOnDeviceModels
         .where((s) => _downloadService.isDownloaded(s))
         .map((s) => s.id)
         .toSet();
 
     final activeSpecId = config.extraConfig['selectedModelSpecId'] as String?;
+    final activeSpec = findOnDeviceModelSpec(config);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'On-Device Model Selection',
-          style: theme.textTheme.labelLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+          style: theme.textTheme.titleSmall,
         ),
         const SizedBox(height: 4),
         Text(
           'Run AI directly on your device without an internet connection. Choose a model below to download and use offline.',
           style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.outline,
+            color: colors.textSecondary,
           ),
         ),
         if (actualDownloadedIds.isEmpty) ...[
@@ -815,27 +803,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest.withValues(
+              color: colors.border.withValues(
                 alpha: 0.5,
               ),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                color: colors.border.withValues(alpha: 0.5),
               ),
             ),
             child: Row(
               children: [
                 Icon(
-                  Icons.info_outline,
+                  HarnessIcons.info,
                   size: 16,
-                  color: theme.colorScheme.onSurfaceVariant,
+                  color: colors.textSecondary,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'No models downloaded. Choose and download a model below to use offline.',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                      color: colors.textSecondary,
                     ),
                   ),
                 ),
@@ -860,26 +848,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ? _downloadService.getPartialProgress(spec)
               : 0.0;
 
-          return Card(
+          final colors = HarnessColors.of(context);
+          return Material(
             key: ValueKey('model_card_${spec.id}'),
-            margin: const EdgeInsets.only(bottom: 12),
-            elevation: isSelected ? 2 : 0,
-            color: isSelected
-                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.25)
-                : theme.colorScheme.surfaceContainerHighest.withValues(
-                    alpha: 0.3,
-                  ),
+            color: isSelected ? colors.primary.c100 : colors.surfaceSecondary,
+            clipBehavior: Clip.antiAlias,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: HarnessRadius.mdAll,
               side: BorderSide(
-                color: isSelected
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-                width: isSelected ? 2 : 1,
+                color: isSelected ? colors.primary.c500 : colors.border,
+                width: isSelected ? 1.5 : 1,
               ),
             ),
             child: InkWell(
-              borderRadius: BorderRadius.circular(12),
               onTap: () {
                 if (isDownloaded) {
                   _selectOnDeviceModel(spec, config);
@@ -888,7 +869,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 }
               },
               child: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(HarnessSpace.md),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -896,70 +877,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         Icon(
                           isSelected
-                              ? Icons.radio_button_checked
-                              : Icons.radio_button_off,
+                              ? HarnessIcons.radioSelected
+                              : HarnessIcons.radioUnselected,
                           color: isSelected
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.outline,
-                          size: 20,
+                              ? colors.primary.c500
+                              : colors.textSecondary,
+                          size: HarnessSize.iconMd,
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: HarnessSpace.sm),
                         Expanded(
                           child: Text(
                             '${spec.name} (${spec.parameterSize})',
-                            style: TextStyle(
-                              fontWeight: isSelected
-                                  ? FontWeight.bold
-                                  : FontWeight.w600,
-                              fontSize: 14,
-                            ),
+                            style: theme.textTheme.titleSmall,
                           ),
                         ),
                         // Tagged memory consumption badge
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
+                            horizontal: HarnessSpace.sm,
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
                             color: spec.memoryUsageMb > 2000
-                                ? Colors.amber.shade100
-                                : Colors.green.shade100,
-                            borderRadius: BorderRadius.circular(8),
+                                ? colors.warning.c100
+                                : colors.success.c100,
+                            borderRadius:
+                                BorderRadius.circular(HarnessRadius.xs),
+                            border: Border.all(
+                              color: spec.memoryUsageMb > 2000
+                                  ? colors.warning.c300
+                                  : colors.success.c300,
+                            ),
                           ),
                           child: Text(
                             spec.memoryTag,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
+                            style: HarnessType.label.copyWith(
                               color: spec.memoryUsageMb > 2000
-                                  ? Colors.amber.shade900
-                                  : Colors.green.shade900,
+                                  ? colors.warning.c900
+                                  : colors.success.c900,
                             ),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    Text(spec.description, style: theme.textTheme.bodySmall),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: HarnessSpace.xs + 2),
+                    Text(
+                      spec.description,
+                      style: HarnessType.bodySm.copyWith(
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: HarnessSpace.sm),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Row(
                           children: [
                             Icon(
-                              Icons.memory_outlined,
+                              HarnessIcons.memory,
                               size: 14,
-                              color: theme.colorScheme.outline,
+                              color: colors.textSecondary,
                             ),
                             const SizedBox(width: 4),
                             Text(
                               'Size: ${spec.downloadSize}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: theme.colorScheme.outline,
-                              ),
+                              style: HarnessType.label.copyWith(color: colors.textSecondary),
                             ),
                           ],
                         ),
@@ -969,16 +951,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             children: [
                               Text(
                                 '${(progress * 100).toInt()}% • ${(progress * spec.totalSizeInMb).toStringAsFixed(0)} / ${spec.downloadSize}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  color: theme.colorScheme.primary,
-                                ),
+                                style: HarnessType.label.copyWith(color: colors.primary.c500),
                               ),
                               const SizedBox(width: 4),
                               IconButton(
                                 key: ValueKey('pause_btn_${spec.id}'),
-                                icon: const Icon(Icons.pause, size: 16),
+                                icon: const Icon(HarnessIcons.pause, size: 16),
                                 tooltip: 'Pause download',
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(),
@@ -992,22 +970,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             children: [
                               Text(
                                 '${(partialProgress * 100).toInt()}% (${(partialBytes / (1024 * 1024)).toStringAsFixed(0)} MB)',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  color: theme.colorScheme.tertiary,
-                                ),
+                                style: HarnessType.label.copyWith(color: colors.warning.c700),
                               ),
                               const SizedBox(width: 6),
                               IconButton(
                                 key: ValueKey('resume_btn_${spec.id}'),
-                                icon: const Icon(Icons.play_arrow, size: 16),
+                                icon: const Icon(HarnessIcons.resume, size: 16),
                                 tooltip: 'Resume',
                                 onPressed: () => _startDownload(spec, config),
                               ),
                               IconButton(
                                 key: ValueKey('discard_btn_${spec.id}'),
-                                icon: const Icon(Icons.close, size: 16),
+                                icon: const Icon(HarnessIcons.x, size: 16),
                                 tooltip: 'Discard partial download',
                                 onPressed: () => _discardPartialDownload(spec),
                               ),
@@ -1017,13 +991,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           TextButton.icon(
                             key: ValueKey('download_btn_${spec.id}'),
                             icon: const Icon(
-                              Icons.download_for_offline,
+                              HarnessIcons.download,
                               size: 16,
                             ),
-                            label: const Text(
-                              'Download',
-                              style: TextStyle(fontSize: 12),
-                            ),
+                            label: const Text('Download'),
                             onPressed: () {
                               _startDownload(spec, config);
                             },
@@ -1033,24 +1004,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(
-                                Icons.check_circle,
+                                HarnessIcons.success,
                                 size: 16,
-                                color: theme.colorScheme.primary,
+                                color: colors.primary.c500,
                               ),
                               const SizedBox(width: 4),
                               Text(
                                 'Downloaded',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: theme.colorScheme.primary,
-                                ),
+                                style: HarnessType.label.copyWith(color: colors.success.c700),
                               ),
                               const SizedBox(width: 8),
                               IconButton(
                                 key: ValueKey('delete_model_${spec.id}'),
                                 icon: const Icon(
-                                  Icons.delete_outline,
+                                  HarnessIcons.trash,
                                   size: 16,
                                 ),
                                 tooltip: 'Delete model weights',
@@ -1079,9 +1046,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           value: partialProgress,
                           minHeight: 4,
                           backgroundColor:
-                              theme.colorScheme.surfaceContainerHighest,
+                              colors.border,
                           valueColor: AlwaysStoppedAnimation<Color>(
-                            theme.colorScheme.tertiary,
+                            colors.warning.c500,
                           ),
                         ),
                       ),
@@ -1093,7 +1060,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           );
         }),
         const SizedBox(height: 12),
-        _buildParameterControls(theme),
+        _buildParameterControls(
+          theme,
+          isLocal: true,
+          localMaxOutputTokens: activeSpec?.maxOutputTokens,
+        ),
       ],
     );
   }
@@ -1172,10 +1143,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Download paused for ${spec.name}: $err'),
-            backgroundColor: Theme.of(context).colorScheme.error,
             action: SnackBarAction(
               label: 'Resume',
-              textColor: Colors.white,
               onPressed: () => _startDownload(spec, config),
             ),
           ),
@@ -1255,8 +1224,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       spec.fileName.trim(),
     );
 
+    final clampedMaxOutput =
+        _maxOutputTokens.clamp(1, spec.maxOutputTokens);
+
     setState(() {
       _modelController.text = spec.fileName.trim();
+      _maxOutputTokens = clampedMaxOutput;
     });
 
     final updated = currentConfig.copyWith(
@@ -1267,9 +1240,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'simulatedAllocatedMb': spec.memoryUsageMb,
         'format': spec.format,
         'modelPath': modelFile.path.trim(),
+        'contextWindowTokens': spec.contextWindowTokens,
       },
       temperature: _temperature,
-      maxOutputTokens: _maxOutputTokens,
+      maxOutputTokens: clampedMaxOutput,
     );
 
     if (mounted) {
@@ -1292,23 +1266,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required List<String> presetModels,
     required ThemeData theme,
   }) {
+    final colors = HarnessColors.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Section A: Model Selection
         Text(
           'Model Selection',
-          style: theme.textTheme.labelLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+          style: theme.textTheme.titleSmall,
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           key: ValueKey('${config.id}_${_modelController.text}'),
           decoration: const InputDecoration(
             labelText: 'Model Preset',
-            border: OutlineInputBorder(),
-            prefixIcon: Icon(Icons.tune),
+            
+            prefixIcon: Icon(HarnessIcons.sliders),
           ),
           initialValue: presetModels.contains(_modelController.text)
               ? _modelController.text
@@ -1336,8 +1309,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           decoration: const InputDecoration(
             labelText: 'Model Identifier',
             hintText: 'e.g. gemini-2.0-flash, gpt-4o, claude-3-7-sonnet',
-            border: OutlineInputBorder(),
-            prefixIcon: Icon(Icons.smart_toy_outlined),
+            
+            prefixIcon: Icon(HarnessIcons.model),
             helperText:
                 'Select from presets above or enter a custom model name.',
           ),
@@ -1348,9 +1321,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         // Section B: API Credentials
         Text(
           'API Credentials',
-          style: theme.textTheme.labelLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+          style: theme.textTheme.titleSmall,
         ),
         const SizedBox(height: 8),
         TextField(
@@ -1363,12 +1334,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ? '✓ API key is saved in encrypted keystore'
                 : 'No API key configured for ${config.displayName}',
             helperStyle: TextStyle(
-              color: hasKey ? Colors.green.shade700 : Colors.orange.shade800,
+              color: hasKey ? colors.success.c700 : colors.warning.c700,
             ),
-            border: const OutlineInputBorder(),
-            prefixIcon: const Icon(Icons.key),
+            
+            prefixIcon: const Icon(HarnessIcons.key),
             suffixIcon: IconButton(
-              icon: Icon(_obscureKey ? Icons.visibility_off : Icons.visibility),
+              icon: Icon(_obscureKey ? HarnessIcons.keyHidden : HarnessIcons.keyVisible),
               onPressed: () => setState(() => _obscureKey = !_obscureKey),
             ),
           ),
@@ -1377,7 +1348,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Row(
           children: [
             FilledButton.tonalIcon(
-              icon: const Icon(Icons.save, size: 18),
+              icon: const Icon(HarnessIcons.save, size: 18),
               label: const Text('Save Key'),
               onPressed: () {
                 final key = _keyController.text.trim();
@@ -1395,10 +1366,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (hasKey) ...[
               const SizedBox(width: 8),
               OutlinedButton.icon(
-                icon: const Icon(Icons.delete_outline, size: 18),
+                icon: const Icon(HarnessIcons.trash, size: 18),
                 label: const Text('Delete Key'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: theme.colorScheme.error,
+                  foregroundColor: colors.error.c700,
                 ),
                 onPressed: () {
                   context.read<ModelSwitcherBloc>().add(
@@ -1416,34 +1387,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
             config.customEndpointUrl != null) ...[
           Text(
             'Custom Endpoint',
-            style: theme.textTheme.labelLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: theme.textTheme.titleSmall,
           ),
           const SizedBox(height: 8),
           TextField(
             controller: _urlController,
             decoration: const InputDecoration(
               labelText: 'Endpoint URL',
-              hintText: 'http://localhost:11434/v1',
+              hintText: 'https://opencode.ai/zen/go/v1',
               helperText:
-                  'Base URL for Ollama, vLLM, LocalAI, or custom OpenAI proxies.',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.link),
+                  'Base URL for OpenAI-compatible endpoints such as OpenCode, Ollama, vLLM, LocalAI, or custom OpenAI proxies. OpenCode session headers are added automatically.',
+              helperMaxLines: 3,
+              
+              prefixIcon: Icon(HarnessIcons.link),
             ),
           ),
           const SizedBox(height: 20),
         ],
 
         // Section D: Parameters
-        _buildParameterControls(theme),
+        _buildParameterControls(theme, isLocal: false),
         const SizedBox(height: 24),
 
         // Section E: Save Button
         SizedBox(
           width: double.infinity,
           child: FilledButton.icon(
-            icon: const Icon(Icons.save_outlined),
+            icon: const Icon(HarnessIcons.save),
             label: Text('Save ${config.displayName} Settings'),
             onPressed: () {
               final newModel = _modelController.text.trim().isNotEmpty
@@ -1487,9 +1457,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// endpoint used by the `web_search`, `web_fetch`, and `execute_script`
   /// commands.
   Widget _buildExternalBridgesCard(ThemeData theme) {
+    final colors = HarnessColors.of(context);
     return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -1500,12 +1469,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Text(
                   'External Bridges',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: theme.textTheme.titleMedium,
                 ),
                 IconButton(
-                  icon: const Icon(Icons.refresh, size: 20),
+                  icon: const Icon(HarnessIcons.refresh, size: 20),
                   onPressed: _loadBridgeSettings,
                   tooltip: 'Refresh',
                 ),
@@ -1515,23 +1482,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text(
               'Web search and script execution are delegated to external services.',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
+                color: colors.textSecondary,
               ),
             ),
             const Divider(height: 24),
             Text(
               'Web Search',
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              style: theme.textTheme.titleSmall,
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               key: ValueKey('bridge_search_$_searchProviderId'),
               decoration: const InputDecoration(
                 labelText: 'Search Provider',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.travel_explore),
+                
+                prefixIcon: Icon(HarnessIcons.searchProvider),
               ),
               initialValue: _searchProviderId,
               items: const [
@@ -1561,16 +1526,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : 'A Tavily key is required for this provider',
                   helperStyle: TextStyle(
                     color: _hasTavilyKey
-                        ? Colors.green.shade700
-                        : Colors.orange.shade800,
+                        ? colors.success.c700
+                        : colors.warning.c700,
                   ),
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.key),
+                  
+                  prefixIcon: const Icon(HarnessIcons.key),
                   suffixIcon: IconButton(
                     icon: Icon(
                       _obscureBridgeKey
-                          ? Icons.visibility_off
-                          : Icons.visibility,
+                          ? HarnessIcons.keyHidden
+                          : HarnessIcons.keyVisible,
                     ),
                     onPressed: () =>
                         setState(() => _obscureBridgeKey = !_obscureBridgeKey),
@@ -1591,16 +1556,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : 'A Brave subscription token is required for this provider',
                   helperStyle: TextStyle(
                     color: _hasBraveKey
-                        ? Colors.green.shade700
-                        : Colors.orange.shade800,
+                        ? colors.success.c700
+                        : colors.warning.c700,
                   ),
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.key),
+                  
+                  prefixIcon: const Icon(HarnessIcons.key),
                   suffixIcon: IconButton(
                     icon: Icon(
                       _obscureBridgeKey
-                          ? Icons.visibility_off
-                          : Icons.visibility,
+                          ? HarnessIcons.keyHidden
+                          : HarnessIcons.keyVisible,
                     ),
                     onPressed: () =>
                         setState(() => _obscureBridgeKey = !_obscureBridgeKey),
@@ -1611,9 +1576,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 20),
             Text(
               'External Runner',
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              style: theme.textTheme.titleSmall,
             ),
             const SizedBox(height: 8),
             TextField(
@@ -1623,22 +1586,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 hintText: 'https://runner.example.com',
                 helperText:
                     'Base URL for external script execution (POST /execute). Leave empty to disable.',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.dns_outlined),
+                
+                prefixIcon: Icon(HarnessIcons.runner),
               ),
             ),
             const SizedBox(height: 20),
             Text(
               'Allowed Hosts',
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              style: theme.textTheme.titleSmall,
             ),
             const SizedBox(height: 4),
             Text(
               'Hosts approved for http_request. Downloads are not restricted by this list.',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
+                color: colors.textSecondary,
               ),
             ),
             const SizedBox(height: 8),
@@ -1650,15 +1611,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Add host',
                       hintText: 'api.example.com or api.example.com:8443',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.public),
+                      
+                      prefixIcon: Icon(HarnessIcons.publicHost),
                     ),
                     onSubmitted: (_) => _addAllowedHost(),
                   ),
                 ),
                 const SizedBox(width: 8),
                 IconButton.filled(
-                  icon: const Icon(Icons.add),
+                  icon: const Icon(HarnessIcons.add),
                   tooltip: 'Add host',
                   onPressed: _addAllowedHost,
                 ),
@@ -1669,7 +1630,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Text(
                 'No hosts allowed. http_request is blocked until a host is added and saved.',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.orange.shade800,
+                  color: colors.warning.c700,
                 ),
               )
             else
@@ -1689,7 +1650,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                icon: const Icon(Icons.save_outlined),
+                icon: const Icon(HarnessIcons.save),
                 label: const Text('Save External Bridges'),
                 onPressed: _saveBridgeSettings,
               ),
@@ -1700,15 +1661,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildParameterControls(ThemeData theme) {
+  Widget _buildParameterControls(
+    ThemeData theme, {
+    required bool isLocal,
+    int? localMaxOutputTokens,
+  }) {
+    final colors = HarnessColors.of(context);
+    final localCap = localMaxOutputTokens ?? kDefaultLocalMaxOutputTokens;
+    final List<int> options;
+    if (isLocal) {
+      options = kLocalMaxOutputTokenOptions
+          .where((value) => value <= localCap)
+          .toList();
+      if (options.isEmpty) options.add(localCap);
+      if (!options.contains(localCap)) options.add(localCap);
+      options.sort();
+    } else {
+      options = <int>{
+        ...kRemoteMaxOutputTokenOptions,
+        // Keep a migrated or hand-edited value selectable rather than letting
+        // the dropdown assert because its current value is not in the list.
+        _maxOutputTokens,
+      }.toList()
+        ..sort();
+    }
+
+    final selected =
+        options.contains(_maxOutputTokens) ? _maxOutputTokens : options.last;
+    final helperText = isLocal
+        ? 'On-device models are capped at ${_formatTokenCount(localCap)} output tokens.'
+        : 'Remote models allow larger outputs. Provider/model caps still apply.';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Parameters',
-          style: theme.textTheme.labelLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+          style: theme.textTheme.titleSmall,
         ),
         const SizedBox(height: 8),
         Row(
@@ -1717,7 +1706,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Text('Temperature'),
             Text(
               _temperature.toStringAsFixed(1),
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: HarnessType.bodySm.copyWith(color: colors.textPrimary, fontWeight: FontWeight.w600),
             ),
           ],
         ),
@@ -1731,25 +1720,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<int>(
-          key: ValueKey('tokens_$_maxOutputTokens'),
-          decoration: const InputDecoration(
+          key: ValueKey('tokens_${isLocal ? 'local' : 'remote'}_$selected'),
+          decoration: InputDecoration(
             labelText: 'Max Output Tokens',
-            border: OutlineInputBorder(),
-            prefixIcon: Icon(Icons.short_text),
+            helperText: helperText,
+            helperMaxLines: 2,
+            
+            prefixIcon: const Icon(HarnessIcons.tokens),
           ),
-          initialValue: _maxOutputTokens,
-          items: const [
-            DropdownMenuItem(value: 1024, child: Text('1,024 tokens')),
-            DropdownMenuItem(value: 2048, child: Text('2,048 tokens')),
-            DropdownMenuItem(value: 4096, child: Text('4,096 tokens')),
-            DropdownMenuItem(value: 8192, child: Text('8,192 tokens')),
-            DropdownMenuItem(value: 16384, child: Text('16,384 tokens')),
-          ],
+          initialValue: selected,
+          items: options
+              .map(
+                (value) => DropdownMenuItem(
+                  value: value,
+                  child: Text('${_formatTokenCount(value)} tokens'),
+                ),
+              )
+              .toList(),
           onChanged: (val) {
             if (val != null) setState(() => _maxOutputTokens = val);
           },
         ),
       ],
     );
+  }
+
+  /// Formats a token count with thousands separators for the settings labels.
+  String _formatTokenCount(int value) {
+    return value.toString().replaceAllMapped(
+          RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
+          (match) => '${match[1]},',
+        );
   }
 }

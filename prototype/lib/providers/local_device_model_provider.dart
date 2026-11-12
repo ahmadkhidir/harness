@@ -5,6 +5,7 @@ import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../core/models/command_definition.dart';
+import '../core/models/model_token_limits.dart';
 import '../core/models/provider_config.dart';
 import '../core/utils/file_system_manager.dart';
 import 'model_provider.dart';
@@ -17,6 +18,7 @@ abstract class OnDeviceInferenceEngine {
     String prompt, {
     double temperature = 0.7,
     int maxTokens = 1024,
+    int contextWindowTokens = 4096,
     String? modelPath,
   });
 
@@ -25,6 +27,7 @@ abstract class OnDeviceInferenceEngine {
     String prompt, {
     double temperature = 0.7,
     int maxTokens = 1024,
+    int contextWindowTokens = 4096,
     String? modelPath,
   });
 
@@ -52,6 +55,7 @@ class PlatformChannelInferenceEngine implements OnDeviceInferenceEngine {
     String prompt, {
     double temperature = 0.7,
     int maxTokens = 1024,
+    int contextWindowTokens = 4096,
     String? modelPath,
   }) async {
     try {
@@ -59,6 +63,7 @@ class PlatformChannelInferenceEngine implements OnDeviceInferenceEngine {
         'prompt': prompt,
         'temperature': temperature,
         'maxTokens': maxTokens,
+        'contextWindowTokens': contextWindowTokens,
         'modelPath': ?modelPath,
       });
       return result ?? '';
@@ -88,6 +93,7 @@ class PlatformChannelInferenceEngine implements OnDeviceInferenceEngine {
     String prompt, {
     double temperature = 0.7,
     int maxTokens = 1024,
+    int contextWindowTokens = 4096,
     String? modelPath,
   }) async* {
     Stream<String> nativeStream;
@@ -97,6 +103,7 @@ class PlatformChannelInferenceEngine implements OnDeviceInferenceEngine {
             'prompt': prompt,
             'temperature': temperature,
             'maxTokens': maxTokens,
+            'contextWindowTokens': contextWindowTokens,
             'modelPath': ?modelPath,
           })
           .map((event) => event.toString());
@@ -287,7 +294,7 @@ class FlutterEdgeAiInferenceEngine implements OnDeviceInferenceEngine {
 
   Future<InferenceModel> _ensureModelLoaded(
     String? modelPath, {
-    int maxTokens = 1024,
+    int contextWindowTokens = 4096,
   }) async {
     final modelFile = await resolveOnDeviceModelFile(modelPath);
 
@@ -325,7 +332,8 @@ class FlutterEdgeAiInferenceEngine implements OnDeviceInferenceEngine {
     }
 
     try {
-      final contextTokens = maxTokens < 1024 ? 1024 : maxTokens;
+      final contextTokens =
+          contextWindowTokens < 1024 ? 1024 : contextWindowTokens;
       try {
         // Automatic hardware acceleration: auto-dispatches to device NPU (Qualcomm Hexagon,
         // Google Tensor TPU, MediaTek NeuroPilot) or GPU (Apple Metal, Qualcomm Adreno, ARM Mali)
@@ -353,9 +361,13 @@ class FlutterEdgeAiInferenceEngine implements OnDeviceInferenceEngine {
     String prompt, {
     double temperature = 0.7,
     int maxTokens = 1024,
+    int contextWindowTokens = 4096,
     String? modelPath,
   }) async {
-    final model = await _ensureModelLoaded(modelPath, maxTokens: maxTokens);
+    final model = await _ensureModelLoaded(
+      modelPath,
+      contextWindowTokens: contextWindowTokens,
+    );
     InferenceModelSession? session;
     try {
       session = await model.createSession(
@@ -380,9 +392,13 @@ class FlutterEdgeAiInferenceEngine implements OnDeviceInferenceEngine {
     String prompt, {
     double temperature = 0.7,
     int maxTokens = 1024,
+    int contextWindowTokens = 4096,
     String? modelPath,
   }) async* {
-    final model = await _ensureModelLoaded(modelPath, maxTokens: maxTokens);
+    final model = await _ensureModelLoaded(
+      modelPath,
+      contextWindowTokens: contextWindowTokens,
+    );
     InferenceModelSession? session;
     try {
       session = await model.createSession(
@@ -517,7 +533,8 @@ class LocalDeviceModelProvider extends ModelProvider {
     final raw = await _resolveEngine(modelPath: modelPath).generate(
       prompt,
       temperature: config.temperature,
-      maxTokens: config.maxOutputTokens,
+      maxTokens: resolveMaxOutputTokens(config),
+      contextWindowTokens: localContextWindowTokensFor(config),
       modelPath: modelPath,
     );
     // On-device models such as Qwen or DeepSeek-R1 inline their reasoning.
@@ -547,7 +564,8 @@ class LocalDeviceModelProvider extends ModelProvider {
     yield* _resolveEngine(modelPath: modelPath).streamGenerate(
       prompt,
       temperature: config.temperature,
-      maxTokens: config.maxOutputTokens,
+      maxTokens: resolveMaxOutputTokens(config),
+      contextWindowTokens: localContextWindowTokensFor(config),
       modelPath: modelPath,
     );
   }

@@ -12,7 +12,7 @@ class ContextBuilder {
   /// Combines:
   /// - Current local date-time with timezone offset
   /// - Autonomous tool calling instructions using standard `<system_call>` tags
-  /// - Zero Thinking Leakage delivery rules (`send_message` and `send_a2ui`)
+  /// - Zero Thinking Leakage delivery rule (`send_ui_message`)
   /// - Registered command definitions and JSON schemas
   /// - Installed skills index (`available_skills`)
   /// - Storage directory tree map
@@ -38,28 +38,18 @@ class ContextBuilder {
     buffer.writeln(
         '`<system_call>{"command": "<command_name>", "parameters": { ... }}</system_call>`');
     buffer.writeln(
+        'Do NOT use DSML, native function-call markup, or any other tool syntax. Only the `<system_call>` format is accepted.');
+    buffer.writeln(
         'You may emit MULTIPLE `<system_call>` tags in a single turn. The engine will execute them concurrently in parallel.');
     buffer.writeln();
 
-    buffer.writeln('## Delivery Protocol & Modality Rules');
+    buffer.writeln('## Delivery Protocol');
     buffer.writeln(
-        'Any intermediate scratchpad text emitted alongside system calls is treated as internal reasoning and will NOT be shown to the user.');
+        'Any intermediate scratchpad text emitted alongside system calls is internal reasoning and is not shown to the user.');
     buffer.writeln(
-        'There is NO default preference between `send_message` and `send_a2ui`. Modality is strictly determined by context:');
+        'Every turn must end with a non-empty `send_ui_message` call:');
     buffer.writeln(
-        '- If the user mentions UI, interactive views, cards, lists, forms, buttons, or dashboards, OR if an invoked skill involves UI, OR if `load_a2ui_catalog` has been invoked:');
-    buffer.writeln(
-        '  -> You MUST deliver the response via `<system_call>{"command": "send_a2ui", "parameters": {"messages": [...]}}</system_call>`.');
-    buffer.writeln(
-        '  -> Do NOT downgrade to plain text or emit `send_message` when UI is requested.');
-    buffer.writeln(
-        '- If the user asks for a conversational explanation, code snippet, or plain text:');
-    buffer.writeln(
-        '  -> Deliver via `<system_call>{"command": "send_message", "parameters": {"text": "<markdown>"}}</system_call>`.');
-    buffer.writeln(
-        '- Every turn MUST end with a non-empty delivery command, including greetings and small talk. Never emit an empty `send_message`.');
-    buffer.writeln(
-        '- If an A2UI delivery has errors: you MUST repair the A2UI component hierarchy and re-emit `send_a2ui`. Do NOT fall back to `send_message`.');
+        '`<system_call>{"command": "send_ui_message", "parameters": {"message": "<your markdown response>"}}</system_call>`');
     buffer.writeln();
 
     buffer.writeln('## Composer Tags');

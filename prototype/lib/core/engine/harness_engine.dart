@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:uuid/uuid.dart';
 import '../../data/services/skills_service.dart';
-import '../../modules/a2ui/a2ui_validator.dart';
+import '../../modules/a2ui/a2ui_surface_store.dart';
 import '../models/models.dart';
 import '../utils/file_system_manager.dart';
 import 'command_router.dart';
@@ -58,10 +58,12 @@ class HarnessEngine {
     String? apiKey,
     String? storageTree,
     String? sessionTranscript,
+    A2UISurfaceStore? surfaceStore,
   }) async* {
     yield EngineTurnStarted(userPrompt);
 
     HarnessFileSystem.instance?.activeSessionId = sessionId;
+    modelProvider.sessionId = sessionId;
 
     final resolvedStorageTree = storageTree ??
         (HarnessFileSystem.instance?.formatFilesystemTree() ??
@@ -106,6 +108,7 @@ class HarnessEngine {
     // nothing or the model omits its delivery text.
     int emptyResponseRetries = 0;
     final accumulatedToolCalls = <ToolExecutionRecord>[];
+    final surfaces = surfaceStore ?? A2UISurfaceStore();
 
     while (turnsCount < maxTurns) {
       turnsCount++;
@@ -126,12 +129,17 @@ class HarnessEngine {
 
       final parsed = SystemCallParser.parse(rawResponse);
 
-      // Check for explicit final delivery commands (send_message / send_a2ui)
+      // Final delivery is always send_ui_message.
       if (parsed.hasExplicitDelivery) {
-        // If send_a2ui was dispatched, strictly validate that it contains renderable components
         if (parsed.explicitA2UIPayload != null) {
-          final validation = A2UIValidator.validate(parsed.explicitA2UIPayload);
-          if (validation.isValid) {
+          final rawMessages = parsed.explicitA2UIPayload!['messages'];
+          final applyResult = rawMessages is List && rawMessages.isNotEmpty
+              ? surfaces.applyMessages(rawMessages)
+              : A2UIApplyResult.failure(
+                  'send_ui_message requires a non-empty "a2ui" message list.',
+                );
+
+          if (applyResult.success) {
             final turn = Turn(
               id: 'turn_${const Uuid().v4().substring(0, 8)}',
               sessionId: sessionId,
@@ -139,7 +147,7 @@ class HarnessEngine {
               sender: 'agent',
               contentType: 'a2ui',
               text: parsed.explicitTextMessage,
-              a2uiSurfaceId: validation.surfaceId,
+              a2uiSurfaceId: applyResult.primarySurfaceId,
               a2uiPayload: parsed.explicitA2UIPayload,
               modelUsed: modelProvider.config.displayName,
               toolCalls: List.unmodifiable(accumulatedToolCalls),
@@ -147,56 +155,42 @@ class HarnessEngine {
 
             yield EngineTurnCompleted(turn);
             return;
-          } else {
-            // Self-Healing Loop: Do not abort with broken UI; feed error back to LLM for autonomous repair
-            final a2uiCall = SystemCall(
-              command: 'send_a2ui',
-              parameters: parsed.explicitA2UIPayload!,
-            );
-            accumulatedToolCalls.add(ToolExecutionRecord(
-              call: a2uiCall,
-              status: 'error',
-              errorMessage: validation.errorMessage,
-            ));
-            yield EngineSystemCallStarted(a2uiCall);
-            yield EngineSystemCallFinished(
-              a2uiCall,
-              SystemResponse.error(
-                command: 'send_a2ui',
-                errorMessage: validation.errorMessage ?? 'Invalid A2UI payload structure.',
-              ),
-            );
-
-            dialogueHistory.add(ModelMessage(role: 'assistant', content: rawResponse));
-            dialogueHistory.add(
-              ModelMessage(
-                role: 'user',
-                content:
-                    '<system_response command="send_a2ui" status="error">\n${validation.errorMessage}\nAction Required: The user requested an interactive UI surface. Repair the A2UI surface/component hierarchy and re-emit send_a2ui with valid components (e.g. inside createSurface.components or updateComponents.components). Do NOT fall back to send_message or plain text.\n</system_response>',
-              ),
-            );
-            continue;
           }
+
+          // Self-healing loop: feed the A2UI error back so the model can repair.
+          final a2uiCall = SystemCall(
+            command: 'send_ui_message',
+            parameters: {'message': parsed.explicitA2UIPayload!},
+          );
+          final errorMessage =
+              applyResult.errorMessage ?? 'Invalid A2UI payload structure.';
+          accumulatedToolCalls.add(ToolExecutionRecord(
+            call: a2uiCall,
+            status: 'error',
+            errorMessage: errorMessage,
+          ));
+          yield EngineSystemCallStarted(a2uiCall);
+          yield EngineSystemCallFinished(
+            a2uiCall,
+            SystemResponse.error(
+              command: 'send_ui_message',
+              errorMessage: errorMessage,
+            ),
+          );
+
+          dialogueHistory.add(ModelMessage(role: 'assistant', content: rawResponse));
+          dialogueHistory.add(
+            ModelMessage(
+              role: 'user',
+              content:
+                  '<system_response command="send_ui_message" status="error">\n$errorMessage\nAction Required: Repair the A2UI messages and re-emit send_ui_message with a corrected message object. Do not fall back to plain text.\n</system_response>',
+            ),
+          );
+          continue;
         }
 
-        // Standard text message delivery via send_message
-        if (parsed.explicitTextMessage != null) {
-          final isUIRequired = accumulatedToolCalls.any(
-                  (r) => r.call.command == 'send_a2ui' || r.call.command == 'load_a2ui_catalog') ||
-              _isUIContextRequested(userPrompt, accumulatedToolCalls);
-
-          if (isUIRequired && turnsCount < maxTurns) {
-            dialogueHistory.add(ModelMessage(role: 'assistant', content: rawResponse));
-            dialogueHistory.add(
-              ModelMessage(
-                role: 'user',
-                content:
-                    '<system_response status="error">\nModality Enforcement: An interactive UI interface was requested by the user or skill context. Do NOT downgrade to plain text or send_message. You must deliver using send_a2ui with a valid component hierarchy.\n</system_response>',
-              ),
-            );
-            continue;
-          }
-
+        if (parsed.explicitTextMessage != null &&
+            parsed.explicitTextMessage!.trim().isNotEmpty) {
           final turn = Turn(
             id: 'turn_${const Uuid().v4().substring(0, 8)}',
             sessionId: sessionId,
@@ -213,24 +207,8 @@ class HarnessEngine {
         }
       }
 
-      // Fallback: If no system calls and no delivery command, treat raw response as text delivery
+      // Fallback: If no system calls and no delivery command, treat raw response as text delivery.
       if (!parsed.hasSystemCalls) {
-        final isUIRequired = accumulatedToolCalls.any(
-                (r) => r.call.command == 'send_a2ui' || r.call.command == 'load_a2ui_catalog') ||
-            _isUIContextRequested(userPrompt, accumulatedToolCalls);
-
-        if (isUIRequired && turnsCount < maxTurns) {
-          dialogueHistory.add(ModelMessage(role: 'assistant', content: rawResponse));
-          dialogueHistory.add(
-            ModelMessage(
-              role: 'user',
-              content:
-                  '<system_response status="error">\nModality Enforcement: An interactive UI interface was requested by the user or skill context. You must deliver using <system_call>{"command": "send_a2ui", "parameters": ...}</system_call>, not plain text. Please emit your A2UI component hierarchy now.\n</system_response>',
-            ),
-          );
-          continue;
-        }
-
         var text = (parsed.explicitTextMessage ?? rawResponse).trim();
         // Zero Leakage: Ensure raw <system_call> or <system_response> tags never leak to user
         if (text.contains('<system_call>')) {
@@ -249,7 +227,7 @@ class HarnessEngine {
               ModelMessage(
                 role: 'user',
                 content:
-                    '<system_response status="error">\nYour previous reply contained no user-visible text. Every turn must end with a non-empty delivery command, for example:\n<system_call>{"command": "send_message", "parameters": {"text": "<your reply>"}}</system_call>\nRespond to the user now.\n</system_response>',
+                    '<system_response status="error">\nYour previous reply contained no user-visible text. Every turn must end with a non-empty delivery command, for example:\n<system_call>{"command": "send_ui_message", "parameters": {"message": "<your reply>"}}</system_call>\nRespond to the user now.\n</system_response>',
               ),
             );
             continue;
@@ -330,41 +308,4 @@ class HarnessEngine {
     );
   }
 
-  /// Determines whether the current conversational turn mandates interactive UI
-  /// delivery (A2UI) rather than plain text.
-  ///
-  /// Only the current prompt and this turn's tool activity are considered; the
-  /// transcript is historical context and must not keep the session in UI mode.
-  static bool _isUIContextRequested(
-    String userPrompt,
-    List<ToolExecutionRecord> accumulatedToolCalls,
-  ) {
-    // 1. Any A2UI or catalog tool executed in this session turn
-    if (accumulatedToolCalls.any((r) =>
-        r.call.command == 'send_a2ui' ||
-        r.call.command == 'load_a2ui_catalog')) {
-      return true;
-    }
-
-    // 2. Any tool output in this turn referencing A2UI or UI catalogs
-    for (final record in accumulatedToolCalls) {
-      final resText = record.output?.toString() ?? record.errorMessage ?? '';
-      if (resText.contains('a2ui') ||
-          resText.contains('catalog.json') ||
-          resText.contains('send_a2ui')) {
-        return true;
-      }
-    }
-
-    // 3. User prompt explicitly requesting UI, cards, lists, forms, or interactive views
-    final uiKeywords = RegExp(
-      r'\b(ui|a2ui|interactive|card|cards|list|form|dashboard|surface|widget|component|components|button|buttons)\b',
-      caseSensitive: false,
-    );
-    if (uiKeywords.hasMatch(userPrompt)) {
-      return true;
-    }
-
-    return false;
-  }
 }

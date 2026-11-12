@@ -84,7 +84,7 @@ void main() {
 
         final provider = _ScriptedProvider([
           '<system_call>{"command": "web_search", "parameters": {"query": "Flutter 3.x release notes", "maxResults": 2}}</system_call>',
-          '<system_call>{"command": "send_message", "parameters": {"text": "Found two sources."}}</system_call>',
+          '<system_call>{"command": "send_ui_message", "parameters": {"message": "Found two sources."}}</system_call>',
         ]);
 
         final engine = HarnessEngine(
@@ -139,7 +139,7 @@ void main() {
 
       final provider = _ScriptedProvider([
         '<system_call>{"command": "web_fetch", "parameters": {"url": "https://example.com/article"}}</system_call>',
-        '<system_call>{"command": "send_message", "parameters": {"text": "Read the page."}}</system_call>',
+        '<system_call>{"command": "send_ui_message", "parameters": {"message": "Read the page."}}</system_call>',
       ]);
 
       final engine = HarnessEngine(
@@ -185,7 +185,7 @@ void main() {
 
       final provider = _ScriptedProvider([
         '<system_call>{"command": "execute_script", "parameters": {"language": "python", "code": "print(2**100)", "timeoutSeconds": 10}}</system_call>',
-        '<system_call>{"command": "send_message", "parameters": {"text": "Computed the value."}}</system_call>',
+        '<system_call>{"command": "send_ui_message", "parameters": {"message": "Computed the value."}}</system_call>',
       ]);
 
       final engine = HarnessEngine(

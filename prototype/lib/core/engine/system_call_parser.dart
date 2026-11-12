@@ -10,10 +10,11 @@ class ParsedModelOutput {
   /// Suppressed from the user-facing chat UI according to the Zero Thinking Leakage rule.
   final String scratchpadText;
 
-  /// Explicit user-facing Markdown message delivered via `send_message` or companion text.
+  /// Explicit user-facing Markdown message delivered through `send_ui_message`
+  /// or as the companion text of an A2UI delivery.
   final String? explicitTextMessage;
 
-  /// Explicit A2UI payload delivered via `send_a2ui`.
+  /// Explicit A2UI message list delivered through `send_ui_message`.
   final Map<String, dynamic>? explicitA2UIPayload;
 
   const ParsedModelOutput({
@@ -26,7 +27,7 @@ class ParsedModelOutput {
   /// True if the model output contains callable system calls.
   bool get hasSystemCalls => systemCalls.isNotEmpty;
 
-  /// True if the model explicitly emitted a delivery command (`send_message` or `send_a2ui`).
+  /// True if the model explicitly emitted a `send_ui_message` delivery.
   ///
   /// Empty or whitespace-only text is treated as a missing delivery: accepting it
   /// would persist a blank agent turn instead of letting the engine retry.
@@ -38,7 +39,7 @@ class ParsedModelOutput {
 /// Robust parser for extracting `<system_call>` XML/JSON blocks from model generation.
 ///
 /// Implements Zero Thinking Leakage by separating internal monologue reasoning from
-/// explicit user delivery commands (`send_message` and `send_a2ui`).
+/// explicit user delivery commands (`send_ui_message`).
 ///
 /// Resilient against:
 /// - Markdown code fences (` ```json ` or ` ```xml `) inside `<system_call>`.
@@ -50,12 +51,39 @@ class SystemCallParser {
   static const String _openTag = '<system_call>';
   static const String _closeTag = '</system_call>';
 
+  // DeepSeek models often ignore the requested <system_call> protocol and
+  // emit their native DSML tool-call dialect instead. Deployments vary between
+  // single/double fullwidth bars, ASCII pipes, and wrapper names such as
+  // `tool_calls`, `calls`, or `function_calls`, so these matchers are
+  // deliberately lenient and key only on the stable structural words.
+  static final RegExp _dsmlInvoke = RegExp(
+    r'<[^>]*DSML[^>]*invoke\s+name\s*=\s*"([^"]+)"[^>]*>([\s\S]*?)</[^>]*DSML[^>]*invoke\s*>',
+    caseSensitive: false,
+  );
+  static final RegExp _dsmlParameter = RegExp(
+    r'<[^>]*DSML[^>]*parameter\s+name\s*=\s*"([^"]+)"([^>]*)>([\s\S]*?)</[^>]*DSML[^>]*parameter\s*>',
+    caseSensitive: false,
+  );
+  static final RegExp _dsmlStringAttr = RegExp(
+    r'string\s*=\s*"([^"]*)"',
+    caseSensitive: false,
+  );
+  static final RegExp _dsmlAnyTag = RegExp(
+    r'</?[^>]*DSML[^>]*>',
+    caseSensitive: false,
+  );
+
   /// Parses the raw string response from an LLM.
   static ParsedModelOutput parse(String rawOutput) {
-    final List<SystemCall> calls = [];
+    // Normalize DeepSeek's native tool-call dialect before scanning for
+    // <system_call> blocks. Its calls are merged into the same result.
+    final dsml = _extractDsmlCalls(rawOutput);
+    rawOutput = dsml.remainingText;
+
+    final List<SystemCall> calls = List<SystemCall>.from(dsml.systemCalls);
     final StringBuffer scratchpad = StringBuffer();
-    String? explicitText;
-    Map<String, dynamic>? explicitA2UI;
+    String? explicitText = dsml.textMessage;
+    Map<String, dynamic>? explicitA2UI = dsml.a2uiPayload;
 
     int cursor = 0;
 
@@ -65,11 +93,20 @@ class SystemCallParser {
         // No more <system_call> tags
         final trailingText = rawOutput.substring(cursor).trim();
         if (trailingText.isNotEmpty) {
-          // Fallback: If no system calls and no delivery commands exist in the entire output,
-          // treat the raw text as a direct message so simple text-only LLMs still function.
-          // CRITICAL: Ensure raw <system_call> tags never leak into explicit text.
+          // Recovery: models sometimes emit the delivery object on its own,
+          // without the <system_call> tags (for example {"a2ui": [...]}).
+          // Recognize only unmistakable delivery shapes, otherwise the object
+          // would be rendered to the user as raw JSON text.
           if (calls.isEmpty && explicitText == null && explicitA2UI == null) {
-            if (!trailingText.contains(_openTag)) {
+            final bareDelivery = _tryBareDelivery(trailingText);
+            if (bareDelivery != null) {
+              explicitText = bareDelivery.text;
+              explicitA2UI = bareDelivery.a2ui;
+            } else if (!trailingText.contains(_openTag)) {
+              // Fallback: If no system calls and no delivery commands exist in
+              // the entire output, treat the raw text as a direct message so
+              // simple text-only LLMs still function.
+              // CRITICAL: Ensure raw <system_call> tags never leak into explicit text.
               explicitText = trailingText;
             }
           } else {
@@ -106,9 +143,8 @@ class SystemCallParser {
           jsonContent,
           calls: calls,
           onTextMessage: (text) => explicitText = text,
-          onA2UI: (payload, text) {
+          onA2UI: (payload) {
             explicitA2UI = payload;
-            if (text != null && text.isNotEmpty) explicitText = text;
           },
         );
       }
@@ -122,12 +158,96 @@ class SystemCallParser {
     );
   }
 
+  /// Converts DeepSeek DSML invokes into [SystemCall]s and delivery text.
+  ///
+  /// The remaining text has every DSML tag removed so malformed or unrelated
+  /// fragments can never leak into the chat transcript.
+  static _DsmlExtraction _extractDsmlCalls(String rawOutput) {
+    final calls = <SystemCall>[];
+    String? textMessage;
+    Map<String, dynamic>? a2uiPayload;
+
+    void consumeInvoke(Match invoke) {
+      final name = (invoke.group(1) ?? '').trim();
+      if (name.isEmpty) return;
+
+      final params = <String, dynamic>{};
+      for (final parameter in _dsmlParameter.allMatches(
+        invoke.group(2) ?? '',
+      )) {
+        final key = (parameter.group(1) ?? '').trim();
+        if (key.isEmpty) continue;
+
+        final rawValue = parameter.group(3) ?? '';
+        final stringAttr = _dsmlStringAttr.firstMatch(
+          parameter.group(2) ?? '',
+        );
+        final isString =
+            (stringAttr?.group(1) ?? 'true').toLowerCase() != 'false';
+
+        // `string="false"` carries a JSON value. The canonical DeepSeek shape
+        // nests the whole parameter object under the `parameters` key.
+        if (!isString && key == 'parameters') {
+          final decoded = _tryRepairAndDecodeJson(rawValue).decoded;
+          if (decoded != null) {
+            params.addAll(decoded);
+            continue;
+          }
+        }
+
+        params[key] = isString ? rawValue.trim() : _decodeDsmlValue(rawValue);
+      }
+
+      if (name == 'send_ui_message') {
+        final message = params['message'];
+        if (message is String) {
+          textMessage = message;
+        } else if (message is Map) {
+          final a2ui = message['a2ui'];
+          if (a2ui is List && a2ui.isNotEmpty) {
+            a2uiPayload = {'messages': a2ui};
+          }
+        }
+        return;
+      }
+
+      calls.add(SystemCall(command: name, parameters: params));
+    }
+
+    var scrubbed = rawOutput.replaceAllMapped(_dsmlInvoke, (invoke) {
+      consumeInvoke(invoke);
+      return '\n';
+    });
+
+    // Scrub residual or unclosed tag fragments.
+    if (_dsmlAnyTag.hasMatch(scrubbed)) {
+      scrubbed = scrubbed.replaceAll(_dsmlAnyTag, '').trim();
+    }
+
+    return _DsmlExtraction(
+      remainingText: scrubbed,
+      systemCalls: calls,
+      textMessage: textMessage,
+      a2uiPayload: a2uiPayload,
+    );
+  }
+
+  /// Decodes a non-string DSML parameter, falling back to its raw text.
+  static dynamic _decodeDsmlValue(String rawValue) {
+    final value = rawValue.trim();
+    try {
+      return json.decode(value);
+    } catch (_) {
+      return value;
+    }
+  }
+
   /// Parses and processes a single `<system_call>` JSON payload.
   static void _processSystemCallBlock(
     String jsonContent, {
     required List<SystemCall> calls,
     required void Function(String) onTextMessage,
-    required void Function(Map<String, dynamic>, String?) onA2UI,
+    required void Function(Map<String, dynamic>) onA2UI,
   }) {
     // 1. Clean and decode or repair the JSON structure
     final decodeResult = _tryRepairAndDecodeJson(jsonContent);
@@ -140,25 +260,32 @@ class SystemCallParser {
           : <String, dynamic>{};
 
       if (cmd != null) {
-        if (cmd == 'send_message') {
-          // Some models hoist `text` to the top level instead of nesting it in
-          // `parameters`; accept both shapes before declaring the delivery empty.
-          final text = params['text'] as String? ?? decoded['text'] as String?;
-          onTextMessage(text ?? '');
-          return;
-        } else if (cmd == 'send_a2ui') {
-          onA2UI(params, params['text'] as String?);
-          return;
-        } else {
-          calls.add(SystemCall(command: cmd, parameters: params));
+        if (cmd == 'send_ui_message') {
+          final message = params['message'] ?? decoded['message'];
+          if (message is String) {
+            onTextMessage(message);
+            return;
+          }
+          if (message is Map) {
+            final map = Map<String, dynamic>.from(message);
+            final a2ui = map['a2ui'];
+            if (a2ui is List && a2ui.isNotEmpty) {
+              onA2UI({'messages': a2ui});
+              return;
+            }
+          }
+          // A malformed delivery shape is not a tool call. Returning without
+          // setting text/A2UI makes the engine retry the delivery.
           return;
         }
+        calls.add(SystemCall(command: cmd, parameters: params));
+        return;
       }
     }
 
-    // 2. Resilient fallback for unclosed or truncated send_message
+    // 2. Resilient fallback for an unclosed or truncated text delivery.
     final sendMsgMatch = RegExp(
-      r'"command"\s*:\s*"send_message"[\s\S]*?"text"\s*:\s*"(.*)',
+      r'"command"\s*:\s*"send_ui_message"[\s\S]*?"message"\s*:\s*"(.*)',
       dotAll: true,
     ).firstMatch(jsonContent);
 
@@ -170,16 +297,7 @@ class SystemCallParser {
       return;
     }
 
-    // 3. Resilient fallback for send_a2ui with minor JSON truncation or syntax quirk
-    if (jsonContent.contains('"send_a2ui"')) {
-      final salvagedA2UI = _trySalvageA2UIPayload(jsonContent);
-      if (salvagedA2UI != null) {
-        onA2UI(salvagedA2UI, salvagedA2UI['text'] as String?);
-        return;
-      }
-    }
-
-    // 4. If unrecoverable, record a malformed_json_error with exact line, column, and snippet
+    // 3. If unrecoverable, record a malformed_json_error with exact line, column, and snippet
     final formattedError = decodeResult.formattedError ??
         'Malformed or unclosed JSON inside <system_call> block.';
 
@@ -192,6 +310,53 @@ class SystemCallParser {
         'column': decodeResult.errorColumn,
       },
     ));
+  }
+
+  /// Recovers a delivery emitted without `<system_call>` tags.
+  ///
+  /// Accepted shapes, in order:
+  /// - `{"command": "send_ui_message", "parameters": {...}}` (full envelope)
+  /// - `{"message": "text"}` or `{"message": {"a2ui": [...]}}` (message only)
+  /// - `{"a2ui": [...]}` (message list only)
+  ///
+  /// Returns null for any other JSON value so an ordinary JSON text reply is
+  /// still delivered as text. The input may be wrapped in a markdown fence.
+  static _BareDelivery? _tryBareDelivery(String text) {
+    final cleaned = _stripMarkdownFences(text);
+    if (!cleaned.startsWith('{') || !cleaned.endsWith('}')) return null;
+
+    final decoded = _tryRepairAndDecodeJson(cleaned).decoded;
+    if (decoded == null) return null;
+
+    if (decoded['command'] == 'send_ui_message') {
+      final params = decoded['parameters'];
+      final message = params is Map ? params['message'] : decoded['message'];
+      return _deliveryFromMessage(message);
+    }
+
+    if (decoded.containsKey('message')) {
+      final recovered = _deliveryFromMessage(decoded['message']);
+      if (recovered != null) return recovered;
+    }
+
+    return _deliveryFromMessage(decoded);
+  }
+
+  /// Converts a `message` value into a delivery, or null when it is not one.
+  ///
+  /// A string becomes a text delivery; a map becomes an A2UI delivery only when
+  /// it carries a non-empty `a2ui` list. Everything else is not a delivery.
+  static _BareDelivery? _deliveryFromMessage(dynamic message) {
+    if (message is String) {
+      return message.trim().isEmpty ? null : _BareDelivery(text: message);
+    }
+    if (message is Map) {
+      final a2ui = message['a2ui'];
+      if (a2ui is List && a2ui.isNotEmpty) {
+        return _BareDelivery(a2ui: {'messages': a2ui});
+      }
+    }
+    return null;
   }
 
   /// Attempts direct JSON decode and multi-pass structural repair.
@@ -324,68 +489,6 @@ class SystemCallParser {
     return buffer.toString().replaceAllMapped(RegExp(r',\s*([\}\]])'), (m) => m.group(1)!);
   }
 
-  /// Salvages a `send_a2ui` payload by extracting companion text and messages list.
-  static Map<String, dynamic>? _trySalvageA2UIPayload(String jsonContent) {
-    try {
-      final textMatch = RegExp(r'"text"\s*:\s*"(.*?)(?<!\\)"').firstMatch(jsonContent);
-      final companionText = textMatch != null ? _unescapeJsonString(textMatch.group(1)!) : null;
-
-      // Extract messages array: "messages"\s*:\s*\[ ... \]
-      final messagesIdx = jsonContent.indexOf('"messages"');
-      if (messagesIdx != -1) {
-        final bracketStart = jsonContent.indexOf('[', messagesIdx);
-        if (bracketStart != -1) {
-          final arrayText = _extractBalancedArray(jsonContent, bracketStart);
-          if (arrayText != null) {
-            final cleanedArray = _sanitizeJsonString(arrayText);
-            final balancedArray = _balanceBracketsAndQuotes(cleanedArray);
-            final decodedMessages = json.decode(balancedArray);
-            if (decodedMessages is List) {
-              final payload = <String, dynamic>{'messages': decodedMessages};
-              if (companionText != null) payload['text'] = companionText;
-              return payload;
-            }
-          }
-        }
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  static String? _extractBalancedArray(String text, int startIdx) {
-    int depth = 0;
-    bool inString = false;
-    bool isEscaped = false;
-
-    for (int i = startIdx; i < text.length; i++) {
-      final char = text[i];
-      if (isEscaped) {
-        isEscaped = false;
-        continue;
-      }
-      if (char == r'\') {
-        isEscaped = true;
-        continue;
-      }
-      if (char == '"') {
-        inString = !inString;
-        continue;
-      }
-      if (!inString) {
-        if (char == '[') depth++;
-        if (char == ']') {
-          depth--;
-          if (depth == 0) {
-            return text.substring(startIdx, i + 1);
-          }
-        }
-      }
-    }
-
-    // Unclosed array: return text from startIdx
-    return text.substring(startIdx);
-  }
-
   /// Formats a visual syntax error snippet pointing with `^` to the exact line and column.
   static String _formatSyntaxError(String rawText, FormatException ex) {
     final offset = ex.offset ?? 0;
@@ -452,5 +555,32 @@ class _JsonDecodeResult {
     this.formattedError,
     this.errorLine,
     this.errorColumn,
+  });
+}
+
+/// Result of recovering a delivery object emitted without `<system_call>` tags.
+class _BareDelivery {
+  /// Text delivery recovered from a bare `message` string.
+  final String? text;
+
+  /// A2UI delivery recovered from a bare `a2ui` list, shaped as
+  /// `{'messages': [...]}` for the engine.
+  final Map<String, dynamic>? a2ui;
+
+  const _BareDelivery({this.text, this.a2ui});
+}
+
+/// Result of normalizing a DeepSeek native tool-call block.
+class _DsmlExtraction {
+  final String remainingText;
+  final List<SystemCall> systemCalls;
+  final String? textMessage;
+  final Map<String, dynamic>? a2uiPayload;
+
+  const _DsmlExtraction({
+    required this.remainingText,
+    this.systemCalls = const [],
+    this.textMessage,
+    this.a2uiPayload,
   });
 }

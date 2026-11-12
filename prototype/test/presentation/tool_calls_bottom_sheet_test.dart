@@ -14,7 +14,7 @@ void main() {
         ),
       );
 
-      expect(find.text('Tool Executions'), findsOneWidget);
+      expect(find.text('Tool executions'), findsOneWidget);
       expect(find.text('0'), findsOneWidget);
       expect(find.text('No tools were dispatched in this turn.'), findsOneWidget);
     });
@@ -55,7 +55,7 @@ void main() {
         ),
       );
 
-      expect(find.text('Tool Executions'), findsOneWidget);
+      expect(find.text('Tool executions'), findsOneWidget);
       expect(find.text('3'), findsOneWidget);
 
       // Verify first command items

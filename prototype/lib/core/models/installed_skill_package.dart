@@ -40,6 +40,9 @@ class InstalledSkillPackage {
   /// Semantic version string.
   String get version => metadata?.version ?? '1.0.0';
 
+  /// True when the skill is a built-in UI-locked package.
+  bool get isLocked => metadata?.isLocked ?? false;
+
   /// Number of auxiliary reference, asset, or script files.
   int get subFileCount => auxiliaryFiles.length;
 }

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import '../catalogs/basic_v1_catalog.dart';
+
+import '../../../presentation/theme/harness_colors.dart';
+import '../json_pointer_resolver.dart';
 import 'a2ui_audio_player.dart';
 import 'a2ui_media_source.dart';
 import 'a2ui_video_player.dart';
@@ -24,6 +26,13 @@ class A2UIComponentContext {
   /// Optional action callback for interactive component dispatches (buttons, inputs).
   final void Function(String action, Map<String, dynamic> dataModel)? onAction;
 
+  /// Optional callback for in-progress value changes that must update the live
+  /// surface data model without starting a model turn.
+  final void Function(String path, dynamic value)? onValueChanged;
+
+  /// True while this component's action is waiting for the model to respond.
+  final bool isPending;
+
   /// Helper to build a child component by its ID.
   final Widget Function(String childId, {Map<String, dynamic>? scopedDataModel}) buildChild;
 
@@ -40,6 +49,8 @@ class A2UIComponentContext {
     required this.componentsMap,
     required this.dataModel,
     this.onAction,
+    this.onValueChanged,
+    this.isPending = false,
     required this.buildChild,
     required this.buildChildren,
     required this.resolveBinding,
@@ -336,7 +347,7 @@ class A2UIComponentRegistry {
 
     // A2UI buttons may carry action-specific values in either a `parameters`
     // or `payload` map. Merge them over the surface data model so the event
-    // router receives a single flat parameter dictionary (FEAT-007).
+    // receives a single flat parameter dictionary.
     final actionParameters = <String, dynamic>{};
     for (final key in const ['parameters', 'payload']) {
       final value = ctx.properties[key];
@@ -345,7 +356,8 @@ class A2UIComponentRegistry {
       }
     }
 
-    VoidCallback? onPressed = disabled
+    final isPending = ctx.isPending;
+    VoidCallback? onPressed = (disabled || isPending)
         ? null
         : () {
             final payload = Map<String, dynamic>.from(ctx.dataModel)
@@ -353,16 +365,25 @@ class A2UIComponentRegistry {
             ctx.onAction?.call(action, payload);
           };
 
-    Widget content = iconName != null
+    Widget content = isPending
         ? Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(_resolveIconData(iconName), size: 18),
+              const Icon(Icons.hourglass_top, size: 18),
               const SizedBox(width: 8),
               Text(label),
             ],
           )
-        : Text(label);
+        : iconName != null
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(_resolveIconData(iconName), size: 18),
+                  const SizedBox(width: 8),
+                  Text(label),
+                ],
+              )
+            : Text(label);
 
     switch (style) {
       case 'outlined':
@@ -609,36 +630,7 @@ class A2UIComponentRegistry {
 
   // --- 14. TextField ---
   static Widget _buildTextField(BuildContext context, A2UIComponentContext ctx) {
-    final label = ctx.properties['label']?.toString() ?? '';
-    final placeholder = ctx.properties['placeholder']?.toString();
-    final rawValue = ctx.properties['value'];
-    final initialValue = ctx.resolveBinding(rawValue)?.toString() ?? '';
-    final variant = ctx.properties['variant']?.toString() ?? 'text';
-    final isPassword = variant == 'password';
-    final isNumber = variant == 'number';
-    final isMultiline = variant == 'multiline';
-
-    return TextField(
-      controller: TextEditingController(text: initialValue),
-      obscureText: isPassword,
-      keyboardType: isNumber
-          ? TextInputType.number
-          : (isMultiline ? TextInputType.multiline : TextInputType.text),
-      maxLines: isMultiline ? 3 : 1,
-      decoration: InputDecoration(
-        labelText: label.isNotEmpty ? label : null,
-        hintText: placeholder,
-        border: const OutlineInputBorder(),
-        isDense: true,
-      ),
-      onChanged: (val) {
-        final action = ctx.properties['onChange']?.toString();
-        if (action != null) {
-          final updatedModel = Map<String, dynamic>.from(ctx.dataModel)..[action] = val;
-          ctx.onAction?.call(action, updatedModel);
-        }
-      },
-    );
+    return _A2UITextField(ctx: ctx);
   }
 
   // --- 15. CheckBox ---
@@ -647,17 +639,26 @@ class A2UIComponentRegistry {
     final rawValue = ctx.properties['value'];
     final resolvedVal = ctx.resolveBinding(rawValue);
     final isChecked = resolvedVal == true || resolvedVal == 'true';
+    final action = ctx.properties['onChange']?.toString() ??
+        ctx.properties['action']?.toString();
 
     return CheckboxListTile(
       title: Text(label),
       value: isChecked,
       dense: true,
       contentPadding: EdgeInsets.zero,
-      onChanged: (val) {
-        final action = ctx.properties['onChange']?.toString() ?? 'toggle_check';
-        final updated = Map<String, dynamic>.from(ctx.dataModel)..[action] = val;
-        ctx.onAction?.call(action, updated);
-      },
+      onChanged: ctx.isPending
+          ? null
+          : (val) {
+              final updated = _withBoundValue(ctx, rawValue, val);
+              ctx.onValueChanged?.call(
+                JsonPointerResolver.bindingPath(rawValue)!,
+                val,
+              );
+              if (action != null) {
+                ctx.onAction?.call(action, updated);
+              }
+            },
     );
   }
 
@@ -667,6 +668,8 @@ class A2UIComponentRegistry {
     final rawOptions = ctx.properties['options'];
     final rawValue = ctx.properties['value'];
     final selectedValue = ctx.resolveBinding(rawValue)?.toString();
+    final action = ctx.properties['onChange']?.toString() ??
+        ctx.properties['action']?.toString();
 
     final options = <Map<String, String>>[];
     if (rawOptions is List) {
@@ -696,13 +699,23 @@ class A2UIComponentRegistry {
             return ChoiceChip(
               label: Text(opt['label']!),
               selected: isSelected,
-              onSelected: (selected) {
-                if (selected) {
-                  final action = ctx.properties['onChange']?.toString() ?? 'select_choice';
-                  final updated = Map<String, dynamic>.from(ctx.dataModel)..[action] = opt['value'];
-                  ctx.onAction?.call(action, updated);
-                }
-              },
+              onSelected: ctx.isPending
+                  ? null
+                  : (selected) {
+                      if (!selected) return;
+                      final updated = _withBoundValue(
+                        ctx,
+                        rawValue,
+                        opt['value'],
+                      );
+                      ctx.onValueChanged?.call(
+                        JsonPointerResolver.bindingPath(rawValue)!,
+                        opt['value'],
+                      );
+                      if (action != null) {
+                        ctx.onAction?.call(action, updated);
+                      }
+                    },
             );
           }).toList(),
         ),
@@ -718,23 +731,40 @@ class A2UIComponentRegistry {
     final min = (ctx.properties['min'] as num?)?.toDouble() ?? 0.0;
     final max = (ctx.properties['max'] as num?)?.toDouble() ?? 100.0;
     final step = (ctx.properties['step'] as num?)?.toDouble() ?? 1.0;
+    final action = ctx.properties['onChange']?.toString() ??
+        ctx.properties['action']?.toString();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         if (label.isNotEmpty)
-          Text('$label: ${numVal.toStringAsFixed(1)}', style: Theme.of(context).textTheme.labelMedium),
+          Text(
+            '$label: ${numVal.toStringAsFixed(1)}',
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
         Slider(
           value: numVal.clamp(min, max),
           min: min,
           max: max,
-          divisions: max > min && step > 0 ? ((max - min) / step).round() : null,
-          onChanged: (val) {
-            final action = ctx.properties['onChange']?.toString() ?? 'slider_change';
-            final updated = Map<String, dynamic>.from(ctx.dataModel)..[action] = val;
-            ctx.onAction?.call(action, updated);
-          },
+          divisions: max > min && step > 0
+              ? ((max - min) / step).round()
+              : null,
+          onChanged: ctx.isPending
+              ? null
+              : (val) {
+                  ctx.onValueChanged?.call(
+                    JsonPointerResolver.bindingPath(rawValue)!,
+                    val,
+                  );
+                },
+          onChangeEnd: ctx.isPending
+              ? null
+              : (val) {
+                  if (action == null) return;
+                  final updated = _withBoundValue(ctx, rawValue, val);
+                  ctx.onAction?.call(action, updated);
+                },
         ),
       ],
     );
@@ -745,29 +775,49 @@ class A2UIComponentRegistry {
     final label = ctx.properties['label']?.toString() ?? 'Select Date';
     final rawValue = ctx.properties['value'];
     final dateStr = ctx.resolveBinding(rawValue)?.toString() ?? 'Tap to select';
+    final action = ctx.properties['onChange']?.toString() ??
+        ctx.properties['action']?.toString();
 
     return OutlinedButton.icon(
       icon: const Icon(Icons.calendar_today, size: 18),
       label: Text('$label: $dateStr'),
-      onPressed: () async {
-        final now = DateTime.now();
-        final picked = await showDatePicker(
-          context: context,
-          initialDate: now,
-          firstDate: DateTime(2020),
-          lastDate: DateTime(2030),
-        );
-        if (picked != null) {
-          final action = ctx.properties['onChange']?.toString() ?? 'date_selected';
-          final formatted = '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-          final updated = Map<String, dynamic>.from(ctx.dataModel)..[action] = formatted;
-          ctx.onAction?.call(action, updated);
-        }
-      },
+      onPressed: ctx.isPending
+          ? null
+          : () async {
+              final now = DateTime.now();
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: now,
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2030),
+              );
+              if (picked != null) {
+                final formatted =
+                    '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+                final updated = _withBoundValue(ctx, rawValue, formatted);
+                ctx.onValueChanged?.call(
+                  JsonPointerResolver.bindingPath(rawValue)!,
+                  formatted,
+                );
+                if (action != null) {
+                  ctx.onAction?.call(action, updated);
+                }
+              }
+            },
     );
   }
 
   // --- Helpers ---
+  /// Returns a copy of the surface data model with a bound component value
+  /// replaced.
+  static Map<String, dynamic> _withBoundValue(
+    A2UIComponentContext ctx,
+    dynamic binding,
+    dynamic value,
+  ) {
+    return JsonPointerResolver.withValue(ctx.dataModel, binding, value);
+  }
+
   static List<String> _extractStringList(dynamic value) {
     if (value is! List) return const [];
     return value.where((e) => e != null).map((e) => e.toString()).toList();
@@ -821,19 +871,21 @@ class A2UIComponentRegistry {
 
   static Color? _resolveColor(String? colorStr, ThemeData theme) {
     if (colorStr == null) return null;
+    final colors =
+        theme.extension<HarnessColors>() ?? HarnessColors.dark;
     switch (colorStr) {
       case 'primary':
-        return theme.colorScheme.primary;
+        return colors.primary.c500;
       case 'secondary':
-        return theme.colorScheme.secondary;
+        return colors.primary.c700;
       case 'error':
-        return theme.colorScheme.error;
+        return colors.error.c500;
       case 'success':
-        return Colors.green.shade600;
+        return colors.success.c600;
       case 'warning':
-        return Colors.amber.shade700;
+        return colors.warning.c600;
       case 'onSurface':
-        return theme.colorScheme.onSurface;
+        return colors.textPrimary;
       default:
         if (colorStr.startsWith('#')) {
           final hex = colorStr.replaceAll('#', '');
@@ -936,6 +988,87 @@ class _StatefulTabsWidgetState extends State<_StatefulTabsWidget> {
         const SizedBox(height: 12),
         if (activeChildId != null) widget.buildChild(activeChildId),
       ],
+    );
+  }
+}
+
+/// Stateful text input that preserves its controller across surface rebuilds.
+class _A2UITextField extends StatefulWidget {
+  final A2UIComponentContext ctx;
+
+  const _A2UITextField({required this.ctx});
+
+  @override
+  State<_A2UITextField> createState() => _A2UITextFieldState();
+}
+
+class _A2UITextFieldState extends State<_A2UITextField> {
+  late final TextEditingController _controller;
+
+  String get _resolvedValue =>
+      widget.ctx.resolveBinding(widget.ctx.properties['value'])?.toString() ??
+      '';
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: _resolvedValue);
+  }
+
+  @override
+  void didUpdateWidget(covariant _A2UITextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final next = _resolvedValue;
+    if (_controller.text != next) {
+      _controller.value = TextEditingValue(
+        text: next,
+        selection: TextSelection.collapsed(offset: next.length),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ctx = widget.ctx;
+    final label = ctx.properties['label']?.toString() ?? '';
+    final placeholder = ctx.properties['placeholder']?.toString();
+    final variant = ctx.properties['variant']?.toString() ?? 'text';
+    final isPassword = variant == 'password';
+    final isNumber = variant == 'number';
+    final isMultiline = variant == 'multiline';
+    final binding = ctx.properties['value'];
+    final path = JsonPointerResolver.bindingPath(binding);
+    final action = ctx.properties['onChange']?.toString() ??
+        ctx.properties['action']?.toString();
+
+    return TextField(
+      controller: _controller,
+      enabled: !ctx.isPending,
+      obscureText: isPassword,
+      keyboardType: isNumber
+          ? TextInputType.number
+          : (isMultiline ? TextInputType.multiline : TextInputType.text),
+      maxLines: isMultiline ? 3 : 1,
+      decoration: InputDecoration(
+        labelText: label.isNotEmpty ? label : null,
+        hintText: placeholder,
+        border: const OutlineInputBorder(),
+        isDense: true,
+      ),
+      onChanged: (val) {
+        if (path != null) ctx.onValueChanged?.call(path, val);
+      },
+      onSubmitted: (val) {
+        if (action == null || path == null) return;
+        final updated = JsonPointerResolver.withValue(ctx.dataModel, binding, val);
+        ctx.onAction?.call(action, updated);
+      },
     );
   }
 }

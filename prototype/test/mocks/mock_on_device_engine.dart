@@ -18,6 +18,7 @@ class StubOnDeviceInferenceEngine implements OnDeviceInferenceEngine {
     String prompt, {
     double temperature = 0.7,
     int maxTokens = 1024,
+    int contextWindowTokens = 4096,
     String? modelPath,
   }) async {
     return _produceResponse(prompt, modelPath);
@@ -28,6 +29,7 @@ class StubOnDeviceInferenceEngine implements OnDeviceInferenceEngine {
     String prompt, {
     double temperature = 0.7,
     int maxTokens = 1024,
+    int contextWindowTokens = 4096,
     String? modelPath,
   }) async* {
     final response = _produceResponse(prompt, modelPath);
@@ -42,7 +44,7 @@ class StubOnDeviceInferenceEngine implements OnDeviceInferenceEngine {
         modelPath.isEmpty ||
         modelPath.toLowerCase().contains('none') ||
         modelPath.toLowerCase().contains('download required')) {
-      return '<system_call>{"command": "send_message", "parameters": {"text": "⚠️ **No On-Device Model Downloaded**\\n\\nPlease navigate to **Settings > Model & Provider Settings**, select **On-Device SLM**, and tap **Download** on a local model (such as Qwen 2.5 or Gemma 2) to enable offline local inference."}}</system_call>';
+      return '<system_call>{"command": "send_ui_message", "parameters": {"message": "⚠️ **No On-Device Model Downloaded**\\n\\nPlease navigate to **Settings > Model & Provider Settings**, select **On-Device SLM**, and tap **Download** on a local model (such as Qwen 2.5 or Gemma 2) to enable offline local inference."}}</system_call>';
     }
 
     final lower = prompt.toLowerCase();
@@ -57,10 +59,10 @@ class StubOnDeviceInferenceEngine implements OnDeviceInferenceEngine {
     }
 
     if (modelName.toLowerCase().contains('deepseek') || modelName.toLowerCase().contains('r1')) {
-      return '<think>\nEvaluating query offline on-device.\n</think>\n<system_call>{"command": "send_message", "parameters": {"text": "Hello! I am DeepSeek-R1 running locally on your device."}}</system_call>';
+      return '<think>\nEvaluating query offline on-device.\n</think>\n<system_call>{"command": "send_ui_message", "parameters": {"message": "Hello! I am DeepSeek-R1 running locally on your device."}}</system_call>';
     }
 
-    return '<system_call>{"command": "send_message", "parameters": {"text": "Test response from $modelName."}}</system_call>';
+    return '<system_call>{"command": "send_ui_message", "parameters": {"message": "Test response from $modelName."}}</system_call>';
   }
 
   @override

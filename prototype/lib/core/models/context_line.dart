@@ -24,8 +24,9 @@ enum ContextLineType {
 ///    `SUMMARY: `, `USER: `, `AGENT: `, or `TOOL: `.
 /// 2. If user or agent text contains line breaks, lines are sanitized (newline characters escaped as
 ///    `\n` or folded) to guarantee that each dialogue event occupies a single discrete line.
-/// 3. For turns where `send_a2ui` was dispatched without companion text, the entry is formatted as:
+/// 3. For A2UI turns, the entry is formatted as:
 ///    `AGENT: [A2UI: surfaceId=<id>, components=<root_component_type>]`.
+///    A2UI turns carry no rendered companion text.
 /// 4. When the session compactor runs, older `USER:` and `AGENT:` lines are deleted and replaced by a
 ///    consolidated `SUMMARY:` line at line 1.
 class ContextLine {
@@ -54,7 +55,7 @@ class ContextLine {
     return text.replaceAll(r'\n', '\n');
   }
 
-  /// Helper to format companion-less A2UI delivery stubs according to rule 3 of `schema.md`.
+  /// Helper to format A2UI delivery stubs according to rule 3 of `schema.md`.
   static String formatA2UIStub({
     required String surfaceId,
     required String rootComponentType,

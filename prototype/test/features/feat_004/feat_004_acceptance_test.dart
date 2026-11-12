@@ -312,7 +312,7 @@ Now I will write the generated summary.
         // Turn 3: Model delivers final user message
         '''
 <system_call>
-{"command": "send_message", "parameters": {"text": "I have reviewed your task and written the summary to output/summary.md."}}
+{"command": "send_ui_message", "parameters": {"message": "I have reviewed your task and written the summary to output/summary.md."}}
 </system_call>
 ''',
       ]);

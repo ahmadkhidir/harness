@@ -1,12 +1,18 @@
 import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:path/path.dart' as p;
+
 import '../../core/models/installed_skill_package.dart';
 import '../../core/utils/file_system_manager.dart';
 import '../../data/services/skills_service.dart';
+import '../theme/brand_mark.dart';
+import '../theme/harness_colors.dart';
+import '../theme/harness_icons.dart';
+import '../theme/harness_tokens.dart';
 
 /// Screen 4: Workspace & Skills Explorer.
 ///
@@ -134,6 +140,13 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
 
       var overwrite = false;
       if (_skillsService.skillExists(name)) {
+        if (_skillsService.isSkillLocked(name)) {
+          await _showImportError(
+            'Skill "$name" is built in and cannot be overwritten. '
+            'Use its restore action instead.',
+          );
+          return;
+        }
         final choice = await _askConflict(name);
         if (choice == null) return;
         if (choice == _SkillConflictChoice.overwrite) {
@@ -164,10 +177,29 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       );
     } on SkillAlreadyExistsException catch (e) {
       await _showImportError(e.toString());
+    } on SkillLockedException catch (e) {
+      await _showImportError(e.toString());
     } on SkillImportException catch (e) {
       await _showImportError(e.message);
     } catch (e) {
       await _showImportError('Could not import skill: $e');
+    }
+  }
+
+  /// Restores a bundled skill, overwriting any local edits.
+  Future<void> _restoreBuiltinSkill(String name) async {
+    try {
+      await _skillsService.restoreBuiltinSkill(name);
+      _rescan();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Restored built-in skill "$name".')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not restore "$name": $e')),
+      );
     }
   }
 
@@ -302,16 +334,21 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Workspace & Skills'),
+        leading: IconButton(
+        icon: const Icon(HarnessIcons.arrowLeft),
+        tooltip: 'Back',
+        onPressed: () => Navigator.maybePop(context),
+      ),
+      title: const Text('Workspace'),
         actions: [
           if (_activeTab == 1)
             IconButton(
-              icon: const Icon(Icons.library_add_outlined),
+              icon: const Icon(HarnessIcons.importSkill),
               tooltip: 'Import Skill',
               onPressed: _importSkill,
             ),
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(HarnessIcons.refresh),
             tooltip: 'Rescan Workspace',
             onPressed: _rescan,
           ),
@@ -320,11 +357,11 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
           controller: _tabController,
           tabs: const [
             Tab(
-              icon: Icon(Icons.folder_outlined),
+              icon: Icon(HarnessIcons.folder),
               text: 'Storage Files',
             ),
             Tab(
-              icon: Icon(Icons.extension_outlined),
+              icon: Icon(HarnessIcons.skill),
               text: 'Installed Skills',
             ),
           ],
@@ -345,20 +382,21 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   }
 
   Widget _buildErrorBanner(ThemeData theme) {
+    final colors = HarnessColors.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
+            Icon(HarnessIcons.error, size: 48, color: colors.error.c500),
             const SizedBox(height: 12),
             Text(
               _errorMessage ?? 'Unknown error',
-              style: TextStyle(color: theme.colorScheme.error),
+              style: TextStyle(color: colors.error.c500),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: HarnessSpace.lg),
             FilledButton.tonal(
               onPressed: _rescan,
               child: const Text('Retry'),
@@ -374,6 +412,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   // ==========================================
 
   Widget _buildStorageFilesTab(ThemeData theme) {
+    final colors = HarnessColors.of(context);
     final filtered = _storageFiles.where((entry) {
       if (entry.isDirectory) return false; // Show files in list
       if (_fileSearchQuery.isEmpty) return true;
@@ -385,15 +424,21 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          padding: const EdgeInsets.fromLTRB(
+            HarnessSpace.lg,
+            HarnessSpace.lg,
+            HarnessSpace.lg,
+            HarnessSpace.sm,
+          ),
           child: TextField(
             controller: _fileSearchController,
+            style: HarnessType.body,
             decoration: InputDecoration(
               labelText: 'Search storage files',
-              prefixIcon: const Icon(Icons.search),
+              prefixIcon: const Icon(HarnessIcons.search),
               suffixIcon: _fileSearchQuery.isNotEmpty
                   ? IconButton(
-                      icon: const Icon(Icons.clear),
+                      icon: const Icon(HarnessIcons.x),
                       onPressed: () {
                         setState(() {
                           _fileSearchController.clear();
@@ -402,8 +447,6 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                       },
                     )
                   : null,
-              border: const OutlineInputBorder(),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
             ),
             onChanged: (val) {
               setState(() {
@@ -416,32 +459,37 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
           child: filtered.isEmpty
               ? _buildEmptyStorageView(theme)
               : ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: HarnessSpace.lg,
+                    vertical: HarnessSpace.sm,
+                  ),
                   itemCount: filtered.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  separatorBuilder: (_, _) => Divider(height: 1, color: colors.border),
                   itemBuilder: (context, index) {
                     final item = filtered[index];
                     return ListTile(
-                      dense: true,
                       contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
+                        horizontal: HarnessSpace.sm,
+                        vertical: HarnessSpace.xs,
                       ),
                       leading: Icon(
                         _getFileIcon(item.name),
-                        color: theme.colorScheme.primary,
+                        color: colors.textSecondary,
                       ),
                       title: Text(
                         item.name,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
+                        style: theme.textTheme.titleSmall,
                       ),
                       subtitle: Text(
-                        '${item.virtualPath} • ${_formatFileSize(item.sizeBytes)}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.outline,
+                        '${item.virtualPath} · ${_formatFileSize(item.sizeBytes)}',
+                        style: HarnessType.codeSm.copyWith(
+                          color: colors.textSecondary,
                         ),
                       ),
-                      trailing: const Icon(Icons.chevron_right, size: 18),
+                      trailing: const Icon(
+                        HarnessIcons.chevronRight,
+                        size: HarnessSize.iconSm,
+                      ),
                       onTap: () => _showFilePreviewSheet(item),
                     );
                   },
@@ -452,44 +500,26 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   }
 
   Widget _buildEmptyStorageView(ThemeData theme) {
+    final colors = HarnessColors.of(context);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: theme.colorScheme.surfaceContainerHighest.withValues(
-                alpha: 0.5,
-              ),
-              border: Border.all(
-                color: theme.colorScheme.outlineVariant,
-                width: 2,
-              ),
-            ),
-            child: Icon(
-              Icons.folder_open_outlined,
-              size: 48,
-              color: theme.colorScheme.outline,
-            ),
-          ),
-          const SizedBox(height: 16),
+          const HarnessMark(size: 48, accented: true),
+          const SizedBox(height: HarnessSpace.lg),
           Text(
             _fileSearchQuery.isNotEmpty
-                ? 'No matching files found'
+                ? 'No matching files'
                 : 'No files in storage',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            style: theme.textTheme.titleMedium,
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: HarnessSpace.sm),
           Text(
             _fileSearchQuery.isNotEmpty
                 ? 'Try a different search term.'
-                : 'Files saved by the agent or placed in primary/ will appear here.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.outline,
+                : 'Files saved by the agent or placed in primary/ appear here.',
+            style: HarnessType.bodySm.copyWith(
+              color: colors.textSecondary,
             ),
             textAlign: TextAlign.center,
           ),
@@ -499,12 +529,10 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   }
 
   void _showFilePreviewSheet(WorkspaceFileEntry entry) {
+    final colors = HarnessColors.of(context);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (bottomSheetContext) {
         final theme = Theme.of(bottomSheetContext);
         final file = File(entry.physicalPath);
@@ -541,7 +569,12 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 16, 8),
+                  padding: const EdgeInsets.fromLTRB(
+                    HarnessSpace.lg,
+                    HarnessSpace.lg,
+                    HarnessSpace.sm,
+                    HarnessSpace.sm,
+                  ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -551,23 +584,23 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                           children: [
                             Text(
                               entry.name,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
+                              style: theme.textTheme.titleMedium,
                             ),
                             Text(
                               entry.virtualPath,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                fontFamily: 'monospace',
-                                color: theme.colorScheme.outline,
+                              style: HarnessType.codeSm.copyWith(
+                                color: colors.textSecondary,
                               ),
                             ),
                           ],
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.copy_rounded, size: 20),
-                        tooltip: 'Copy Virtual Path',
+                        icon: const Icon(
+                          HarnessIcons.copy,
+                          size: HarnessSize.iconSm,
+                        ),
+                        tooltip: 'Copy virtual path',
                         onPressed: () {
                           Clipboard.setData(ClipboardData(text: entry.virtualPath));
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -579,7 +612,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                         },
                       ),
                       IconButton(
-                        icon: const Icon(Icons.close),
+                        icon: const Icon(HarnessIcons.x),
                         onPressed: () => Navigator.pop(bottomSheetContext),
                       ),
                     ],
@@ -588,38 +621,41 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                 if (isTruncated)
                   Container(
                     width: double.infinity,
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    padding: const EdgeInsets.all(8),
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: HarnessSpace.lg,
+                      vertical: HarnessSpace.xs,
+                    ),
+                    padding: const EdgeInsets.all(HarnessSpace.sm),
                     decoration: BoxDecoration(
-                      color: Colors.amber.shade100,
-                      borderRadius: BorderRadius.circular(8),
+                      color: colors.warning.c100,
+                      borderRadius: HarnessRadius.smAll,
+                      border: Border.all(color: colors.warning.c300),
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.warning_amber_rounded,
-                            size: 16, color: Colors.amber.shade900),
-                        const SizedBox(width: 8),
+                        Icon(
+                          HarnessIcons.warning,
+                          size: HarnessSize.iconSm,
+                          color: colors.warning.c700,
+                        ),
+                        const SizedBox(width: HarnessSpace.sm),
                         Expanded(
                           child: Text(
                             'Large file (> 2 MB): showing first 500 lines.',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.amber.shade900,
+                            style: HarnessType.label.copyWith(
+                              color: colors.warning.c900,
                             ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                const Divider(height: 1),
+                Divider(height: 1, color: colors.border),
                 Expanded(
                   child: Container(
-                    color: theme.colorScheme.surfaceContainerHighest.withValues(
-                      alpha: 0.3,
-                    ),
+                    color: colors.surfaceSecondary,
                     child: ListView.builder(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(HarnessSpace.md),
                       itemCount: linesList.length,
                       itemBuilder: (context, idx) {
                         return Row(
@@ -629,21 +665,19 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                               width: 36,
                               child: Text(
                                 '${idx + 1}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontFamily: 'monospace',
-                                  color: theme.colorScheme.outline,
+                                style: HarnessType.codeSm.copyWith(
+                                  color: colors.textSecondary,
                                 ),
                                 textAlign: TextAlign.right,
                               ),
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: HarnessSpace.md),
                             Expanded(
                               child: Text(
                                 linesList[idx],
-                                style: const TextStyle(
+                                style: HarnessType.codeSm.copyWith(
                                   fontSize: 12,
-                                  fontFamily: 'monospace',
+                                  color: colors.textPrimary,
                                 ),
                               ),
                             ),
@@ -666,140 +700,191 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   // ==========================================
 
   Widget _buildInstalledSkillsTab(ThemeData theme) {
+    final colors = HarnessColors.of(context);
     if (_installedSkills.isEmpty) {
       return _buildEmptySkillsView(theme);
     }
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(HarnessSpace.lg),
       children: [
         // Informational banner
         Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(HarnessSpace.md),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-            ),
+            color: colors.info.c100,
+            borderRadius: HarnessRadius.smAll,
+            border: Border.all(color: colors.info.c300),
           ),
           child: Row(
             children: [
-              Icon(Icons.info_outline, size: 20, color: theme.colorScheme.primary),
-              const SizedBox(width: 12),
+              Icon(HarnessIcons.info, size: HarnessSize.iconMd, color: colors.info.c700),
+              const SizedBox(width: HarnessSpace.md),
               Expanded(
                 child: Text(
                   'Skills provide on-demand specialized workflows and reference files loaded transiently during active tasks.',
-                  style: theme.textTheme.bodySmall,
+                  style: HarnessType.bodySm.copyWith(color: colors.info.c900),
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: HarnessSpace.lg),
         ..._installedSkills.map((pkg) => _buildSkillCard(pkg, theme)),
+        ..._buildMissingBuiltinCards(theme),
       ],
     );
   }
 
+  /// Shows restore cards for bundled skills that are not installed.
+  List<Widget> _buildMissingBuiltinCards(ThemeData theme) {
+    final installed = _installedSkills
+        .map((pkg) => pkg.directoryName)
+        .toSet();
+    final missing = kBuiltinSkills
+        .where((definition) => !installed.contains(definition.name))
+        .toList();
+    if (missing.isEmpty) return const [];
+
+    return [
+      const SizedBox(height: HarnessSpace.sm),
+      Text(
+        'Built-in skills',
+        style: theme.textTheme.titleMedium,
+      ),
+      const SizedBox(height: HarnessSpace.sm),
+      ...missing.map(
+        (definition) => Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: ListTile(
+            leading: const Icon(HarnessIcons.lock),
+            title: Text(definition.name),
+            subtitle: const Text('Bundled skill is not installed'),
+            trailing: IconButton(
+              icon: const Icon(HarnessIcons.restore),
+              tooltip: 'Restore built-in skill',
+              onPressed: () => _restoreBuiltinSkill(definition.name),
+            ),
+          ),
+        ),
+      ),
+    ];
+  }
+
   Widget _buildSkillCard(InstalledSkillPackage pkg, ThemeData theme) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 1,
+    final colors = HarnessColors.of(context);
+    return Material(
+      color: colors.surface,
+      clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: HarnessRadius.mdAll,
         side: BorderSide(
-          color: pkg.isMalformed
-              ? Colors.amber.shade700
-              : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+          color: pkg.isMalformed ? colors.warning.c500 : colors.border,
+          width: pkg.isMalformed ? 1.5 : 1,
         ),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
         onTap: () => _showSkillDetailSheet(pkg),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(HarnessSpace.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
                   Icon(
-                    Icons.extension,
-                    size: 20,
+                    HarnessIcons.skill,
+                    size: HarnessSize.iconMd,
                     color: pkg.isMalformed
-                        ? Colors.amber.shade800
-                        : theme.colorScheme.primary,
+                        ? colors.warning.c700
+                        : colors.textSecondary,
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: HarnessSpace.sm),
                   Expanded(
                     child: Text(
                       pkg.displayName,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: theme.textTheme.titleSmall,
                     ),
                   ),
+                  if (pkg.isLocked) ...[
+                    Icon(
+                      HarnessIcons.lock,
+                      size: HarnessSize.iconSm,
+                      color: colors.textSecondary,
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        HarnessIcons.restore,
+                        size: HarnessSize.iconSm,
+                      ),
+                      tooltip: 'Restore built-in skill',
+                      onPressed: () => _restoreBuiltinSkill(pkg.directoryName),
+                    ),
+                  ],
                   if (pkg.isMalformed)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      height: 22,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: HarnessSpace.sm,
+                      ),
+                      alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: Colors.amber.shade100,
-                        borderRadius: BorderRadius.circular(8),
+                        color: colors.warning.c100,
+                        borderRadius: BorderRadius.circular(HarnessRadius.xs),
+                        border: Border.all(color: colors.warning.c300),
                       ),
                       child: Text(
                         'Missing SKILL.md',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.amber.shade900,
+                        style: HarnessType.label.copyWith(
+                          color: colors.warning.c900,
                         ),
                       ),
                     )
                   else
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      height: 22,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: HarnessSpace.sm,
+                      ),
+                      alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(8),
+                        color: colors.primary.c100,
+                        borderRadius: BorderRadius.circular(HarnessRadius.xs),
                       ),
                       child: Text(
                         'v${pkg.version}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.onPrimaryContainer,
+                        style: HarnessType.label.copyWith(
+                          color: colors.primary.c900,
                         ),
                       ),
                     ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: HarnessSpace.sm),
               Text(
                 pkg.description,
-                style: theme.textTheme.bodySmall?.copyWith(
+                style: HarnessType.bodySm.copyWith(
                   color: pkg.isMalformed
-                      ? Colors.amber.shade900
-                      : theme.colorScheme.onSurfaceVariant,
+                      ? colors.warning.c900
+                      : colors.textSecondary,
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: HarnessSpace.md),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Row(
                     children: [
                       Icon(
-                        Icons.attach_file,
-                        size: 14,
-                        color: theme.colorScheme.outline,
+                        HarnessIcons.attachment,
+                        size: HarnessSize.iconSm,
+                        color: colors.textSecondary,
                       ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: HarnessSpace.xs),
                       Text(
                         '${pkg.subFileCount} auxiliary file${pkg.subFileCount == 1 ? '' : 's'}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: theme.colorScheme.outline,
+                        style: HarnessType.bodySm.copyWith(
+                          color: colors.textSecondary,
                         ),
                       ),
                     ],
@@ -808,17 +893,15 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                     children: [
                       Text(
                         'View details',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.w600,
+                        style: HarnessType.label.copyWith(
+                          color: colors.primary.c500,
                         ),
                       ),
                       const SizedBox(width: 2),
                       Icon(
-                        Icons.chevron_right,
-                        size: 16,
-                        color: theme.colorScheme.primary,
+                        HarnessIcons.chevronRight,
+                        size: HarnessSize.iconSm,
+                        color: colors.primary.c500,
                       ),
                     ],
                   ),
@@ -832,38 +915,24 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   }
 
   Widget _buildEmptySkillsView(ThemeData theme) {
+    final colors = HarnessColors.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: theme.colorScheme.surfaceContainerHighest.withValues(
-                  alpha: 0.5,
-                ),
-              ),
-              child: Icon(
-                Icons.extension_off_outlined,
-                size: 48,
-                color: theme.colorScheme.outline,
-              ),
-            ),
-            const SizedBox(height: 16),
+            const HarnessMark(size: 48, accented: true),
+            const SizedBox(height: HarnessSpace.lg),
             Text(
               'No skills installed',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              style: theme.textTheme.titleMedium,
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: HarnessSpace.sm),
             Text(
               'Place skill directories containing a SKILL.md inside <HarnessRoot>/skills/ to make them available to the agent.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
+              style: HarnessType.bodySm.copyWith(
+                color: colors.textSecondary,
               ),
               textAlign: TextAlign.center,
             ),
@@ -874,12 +943,10 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   }
 
   void _showSkillDetailSheet(InstalledSkillPackage pkg) {
+    final colors = HarnessColors.of(context);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (bottomSheetContext) {
         final theme = Theme.of(bottomSheetContext);
         final sheetHeight = MediaQuery.of(bottomSheetContext).size.height * 0.85;
@@ -891,7 +958,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 16, 8),
+                  padding: const EdgeInsets.fromLTRB(HarnessSpace.lg, HarnessSpace.lg, HarnessSpace.sm, HarnessSpace.sm),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -901,77 +968,62 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                           children: [
                             Text(
                               pkg.displayName,
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
+                              style: theme.textTheme.titleLarge,
                             ),
                             Text(
                               'skills/${pkg.directoryName}/',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                fontFamily: 'monospace',
-                                color: theme.colorScheme.outline,
-                              ),
+                              style: HarnessType.codeSm.copyWith(color: colors.textSecondary),
                             ),
                           ],
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.close),
+                        icon: const Icon(HarnessIcons.x),
                         onPressed: () => Navigator.pop(bottomSheetContext),
                       ),
                     ],
                   ),
                 ),
-                const Divider(height: 1),
+                Divider(height: 1, color: colors.border),
                 Expanded(
                   child: ListView(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(HarnessSpace.lg),
                     children: [
                       if (pkg.isMalformed) ...[
                         Container(
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.all(HarnessSpace.md),
                           decoration: BoxDecoration(
-                            color: Colors.amber.shade50,
+                            color: colors.warning.c100,
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.amber.shade400),
+                            border: Border.all(color: colors.warning.c300),
                           ),
                           child: Row(
                             children: [
-                              Icon(Icons.warning_amber_rounded,
-                                  color: Colors.amber.shade900),
-                              const SizedBox(width: 8),
+                              Icon(HarnessIcons.warning, size: HarnessSize.iconSm, color: colors.warning.c700),
+                              const SizedBox(width: HarnessSpace.sm),
                               Expanded(
                                 child: Text(
                                   pkg.malformedReason ??
                                       'Package is malformed and cannot be loaded.',
-                                  style: TextStyle(
-                                    color: Colors.amber.shade900,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                                  style: HarnessType.bodySm.copyWith(color: colors.warning.c900, fontWeight: FontWeight.w600),
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: HarnessSpace.lg),
                       ],
                       Text(
                         'SKILL.md Instructions',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: theme.textTheme.titleMedium,
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: HarnessSpace.sm),
                       Container(
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.all(HarnessSpace.md),
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainerHighest
-                              .withValues(alpha: 0.3),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: theme.colorScheme.outlineVariant
-                                .withValues(alpha: 0.5),
-                          ),
+                          color: colors.surfaceSecondary,
+                          borderRadius: HarnessRadius.smAll,
+                          border: Border.all(color: colors.border),
                         ),
                         child: pkg.skillMdContent != null
                             ? MarkdownBody(
@@ -980,27 +1032,18 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                             : const Text('(No SKILL.md file present)'),
                       ),
                       if (pkg.auxiliaryFiles.isNotEmpty) ...[
-                        const SizedBox(height: 20),
+                        const SizedBox(height: HarnessSpace.xl),
                         Text(
                           'Auxiliary Files (${pkg.auxiliaryFiles.length})',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: theme.textTheme.titleMedium,
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: HarnessSpace.sm),
                         ...pkg.auxiliaryFiles.map(
                           (aux) => ListTile(
                             dense: true,
                             contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.insert_drive_file_outlined,
-                                size: 18),
-                            title: Text(
-                              aux,
-                              style: const TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 12,
-                              ),
-                            ),
+                            leading: const Icon(HarnessIcons.file, size: HarnessSize.iconSm),
+                            title: Text(aux, style: HarnessType.codeSm.copyWith(color: colors.textSecondary)),
                           ),
                         ),
                       ],
@@ -1020,25 +1063,25 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     switch (ext) {
       case '.md':
       case '.txt':
-        return Icons.description_outlined;
+        return HarnessIcons.fileText;
       case '.json':
       case '.yaml':
       case '.yml':
-        return Icons.data_object;
+        return HarnessIcons.fileJson;
       case '.dart':
       case '.py':
       case '.js':
       case '.sh':
-        return Icons.code;
+        return HarnessIcons.fileCode;
       case '.png':
       case '.jpg':
       case '.jpeg':
       case '.svg':
-        return Icons.image_outlined;
+        return HarnessIcons.image;
       case '.pdf':
-        return Icons.picture_as_pdf_outlined;
+        return HarnessIcons.fileText;
       default:
-        return Icons.insert_drive_file_outlined;
+        return HarnessIcons.file;
     }
   }
 

@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import '../../core/utils/file_system_manager.dart';
+import '../theme/harness_colors.dart';
+import '../theme/harness_icons.dart';
+import '../theme/harness_tokens.dart';
 
 /// Shows a storage browser and returns the selected virtual path.
 ///
@@ -16,7 +19,6 @@ Future<String?> showStoragePickerSheet(
   return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
-    showDragHandle: true,
     builder: (sheetContext) => FractionallySizedBox(
       heightFactor: 0.8,
       child: _StoragePickerSheet(fileSystem: fileSystem),
@@ -131,7 +133,7 @@ class _StoragePickerSheetState extends State<_StoragePickerSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = HarnessColors.of(context);
     final entries = _entries();
     final title = _atRoot
         ? 'Storage volumes'
@@ -143,11 +145,16 @@ class _StoragePickerSheetState extends State<_StoragePickerSheet> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(8, 4, 16, 4),
+          padding: const EdgeInsets.fromLTRB(
+            HarnessSpace.sm,
+            HarnessSpace.xs,
+            HarnessSpace.lg,
+            HarnessSpace.xs,
+          ),
           child: Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.arrow_back),
+                icon: const Icon(HarnessIcons.arrowLeft),
                 tooltip: 'Back',
                 onPressed: _atRoot ? null : _goBack,
               ),
@@ -155,15 +162,14 @@ class _StoragePickerSheetState extends State<_StoragePickerSheet> {
                 child: Text(
                   title,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'monospace',
+                  style: HarnessType.code.copyWith(
+                    color: _atRoot ? colors.textPrimary : colors.textSecondary,
                   ),
                 ),
               ),
               if (!_atRoot)
                 TextButton.icon(
-                  icon: const Icon(Icons.check, size: 18),
+                  icon: const Icon(HarnessIcons.check, size: HarnessSize.iconSm),
                   label: const Text('Use this folder'),
                   onPressed: () =>
                       Navigator.of(context).pop(_currentVirtualPath),
@@ -172,34 +178,35 @@ class _StoragePickerSheetState extends State<_StoragePickerSheet> {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: HarnessSpace.lg),
           child: TextField(
             controller: _searchController,
-            decoration: const InputDecoration(
+            style: HarnessType.body,
+            decoration: InputDecoration(
               hintText: 'Filter this folder',
-              prefixIcon: Icon(Icons.search),
-              border: OutlineInputBorder(),
-              isDense: true,
+              prefixIcon: const Icon(HarnessIcons.search),
             ),
             onChanged: (value) => setState(() => _query = value),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: HarnessSpace.sm),
         if (_error != null)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: HarnessSpace.lg),
             child: Text(
               _error!,
-              style: TextStyle(color: theme.colorScheme.error),
+              style: HarnessType.bodySm.copyWith(color: colors.error.c700),
             ),
           ),
         Expanded(
           child: entries.isEmpty
               ? Center(
                   child: Text(
-                    _atRoot ? 'No storage volumes registered.' : 'This folder is empty.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.outline,
+                    _atRoot
+                        ? 'No storage volumes registered.'
+                        : 'This folder is empty.',
+                    style: HarnessType.bodySm.copyWith(
+                      color: colors.textSecondary,
                     ),
                   ),
                 )
@@ -210,18 +217,29 @@ class _StoragePickerSheetState extends State<_StoragePickerSheet> {
                     return ListTile(
                       leading: Icon(
                         entry.isDirectory
-                            ? Icons.folder_outlined
-                            : Icons.insert_drive_file_outlined,
+                            ? HarnessIcons.folder
+                            : HarnessIcons.file,
                       ),
-                      title: Text(entry.name),
-                      subtitle: entry.isDirectory ? null : const Text('File'),
+                      title: Text(
+                        entry.name,
+                        style: HarnessType.body.copyWith(
+                          color: colors.textPrimary,
+                        ),
+                      ),
+                      subtitle: entry.isDirectory
+                          ? null
+                          : Text(
+                              'File',
+                              style: HarnessType.bodySm.copyWith(
+                                color: colors.textSecondary,
+                              ),
+                            ),
                       onTap: () {
                         if (entry.isDirectory) {
                           _openDirectory(entry.name);
                         } else {
                           final path = _joinPath(entry.name);
-                          Navigator.of(context)
-                              .pop('$_mountTag/$path');
+                          Navigator.of(context).pop('$_mountTag/$path');
                         }
                       },
                     );

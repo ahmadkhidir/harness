@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/scheduled_timer.dart';
 import '../../data/services/timer_service.dart';
+import '../theme/harness_colors.dart';
+import '../theme/harness_icons.dart';
+import '../theme/harness_tokens.dart';
 
 /// Compact, non-message indicator for scheduled self-prompt timers.
 ///
@@ -92,43 +95,53 @@ class _TimerStripState extends State<TimerStrip> {
   @override
   Widget build(BuildContext context) {
     if (_timers.isEmpty) return const SizedBox.shrink();
-    final theme = Theme.of(context);
+    final colors = HarnessColors.of(context);
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+      padding: const EdgeInsets.fromLTRB(
+        HarnessSpace.lg,
+        HarnessSpace.sm,
+        HarnessSpace.lg,
+        0,
+      ),
       child: Material(
-        color: theme.colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(12),
+        color: colors.primary.c100,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: HarnessRadius.smAll,
+          side: BorderSide(color: colors.primary.c300),
+        ),
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
           onTap: _showTimerSheet,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.timer_outlined,
-                  size: 18,
-                  color: theme.colorScheme.onSecondaryContainer,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _summary(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSecondaryContainer,
-                      fontWeight: FontWeight.w600,
+          child: SizedBox(
+            height: HarnessSize.timerStrip,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: HarnessSpace.md),
+              child: Row(
+                children: [
+                  Icon(
+                    HarnessIcons.timer,
+                    size: HarnessSize.iconSm,
+                    color: colors.primary.c700,
+                  ),
+                  const SizedBox(width: HarnessSpace.sm),
+                  Expanded(
+                    child: Text(
+                      _summary(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: HarnessType.label.copyWith(
+                        color: colors.primary.c900,
+                      ),
                     ),
                   ),
-                ),
-                Icon(
-                  Icons.expand_more,
-                  size: 18,
-                  color: theme.colorScheme.onSecondaryContainer,
-                ),
-              ],
+                  Icon(
+                    HarnessIcons.chevronDown,
+                    size: HarnessSize.iconSm,
+                    color: colors.primary.c700,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -166,7 +179,7 @@ class _TimerStripState extends State<TimerStrip> {
                           ? 'Queued'
                           : _remaining(timer);
                   return ListTile(
-                    leading: const Icon(Icons.timer_outlined),
+                    leading: const Icon(HarnessIcons.timer),
                     title: Text(
                       timer.label?.trim().isNotEmpty == true
                           ? timer.label!
@@ -180,7 +193,7 @@ class _TimerStripState extends State<TimerStrip> {
                     isThreeLine: true,
                     trailing: IconButton(
                       tooltip: 'Cancel timer',
-                      icon: const Icon(Icons.close),
+                      icon: const Icon(HarnessIcons.x),
                       onPressed: () async {
                         await service.cancel(widget.sessionId, timer.id);
                         if (sheetContext.mounted) {

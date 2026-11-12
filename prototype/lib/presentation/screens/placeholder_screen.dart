@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../theme/brand_mark.dart';
+import '../theme/harness_colors.dart';
+import '../theme/harness_icons.dart';
+import '../theme/harness_tokens.dart';
+
 /// Informational placeholder screen for routes whose full features have not yet been implemented.
 class PlaceholderScreen extends StatelessWidget {
   final String title;
@@ -17,57 +22,51 @@ class PlaceholderScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = HarnessColors.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(title),
-      ),
+      appBar: AppBar(title: Text(title)),
       body: Center(
         child: Padding(
-          padding: const EdgeInsets.all(32),
+          padding: const EdgeInsets.all(HarnessSpace.xxl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.construction_rounded,
-                size: 64,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(height: 16),
+              const HarnessMark(size: 48, accented: true),
+              const SizedBox(height: HarnessSpace.lg),
               Text(
                 title,
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+                style: theme.textTheme.titleMedium,
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: HarnessSpace.sm),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: HarnessSpace.sm,
+                  vertical: HarnessSpace.xs,
+                ),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
+                  color: colors.primary.c100,
+                  borderRadius: BorderRadius.circular(HarnessRadius.xs),
                 ),
                 child: Text(
                   featureName,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.onPrimaryContainer,
-                  ),
+                  style: HarnessType.label.copyWith(color: colors.primary.c900),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: HarnessSpace.md),
               Text(
                 description,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+                style: HarnessType.bodySm.copyWith(color: colors.textSecondary),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: HarnessSpace.xl),
               OutlinedButton.icon(
-                icon: const Icon(Icons.arrow_back),
-                label: const Text('Back to Chat'),
+                icon: const Icon(
+                  HarnessIcons.arrowLeft,
+                  size: HarnessSize.iconSm,
+                ),
+                label: const Text('Back to chat'),
                 onPressed: () => Navigator.pop(context),
               ),
             ],
@@ -77,4 +76,3 @@ class PlaceholderScreen extends StatelessWidget {
     );
   }
 }
-

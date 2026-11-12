@@ -216,7 +216,7 @@ Scratchpad: User wants a summary. I will load the summarizer skill first.
         // Turn 2: Model observes skill instructions in dialogue history and delivers final message
         '''
 <system_call>
-{"command": "send_message", "parameters": {"text": "[SUMMARY] The meeting covered Q3 targets."}}
+{"command": "send_ui_message", "parameters": {"message": "[SUMMARY] The meeting covered Q3 targets."}}
 </system_call>
 ''',
       ]);

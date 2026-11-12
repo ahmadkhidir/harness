@@ -24,6 +24,20 @@ class OnDeviceModelSpec {
   /// Local filename stored inside `data/models/`.
   final String fileName;
 
+  /// Maximum prompt + response context prepared for the LiteRT-LM bundle.
+  ///
+  /// These values are deliberately conservative for mobile execution. The
+  /// engine uses this as the model-loading context budget, while
+  /// [maxOutputTokens] caps the response length independently.
+  final int contextWindowTokens;
+
+  /// Conservative maximum response length recommended for this on-device model.
+  ///
+  /// Local models have much smaller output budgets than remote providers. The
+  /// settings UI and [LocalDeviceModelProvider] clamp user configuration to this
+  /// value so a remote-sized token cap can never be applied to an on-device SLM.
+  final int maxOutputTokens;
+
   /// Remote URL for downloading model weights from HuggingFace / CDN.
   final String? downloadUrl;
 
@@ -36,6 +50,8 @@ class OnDeviceModelSpec {
     required this.downloadSize,
     required this.description,
     required this.fileName,
+    this.contextWindowTokens = 4096,
+    this.maxOutputTokens = 1024,
     this.downloadUrl,
   });
 
@@ -67,6 +83,8 @@ const List<OnDeviceModelSpec> kSupportedOnDeviceModels = [
     description:
         'A versatile assistant from Google that answers questions and handles everyday tasks quickly and reliably.',
     fileName: 'gemma-4-E2B-it.litertlm',
+    contextWindowTokens: 4096,
+    maxOutputTokens: 1024,
     downloadUrl:
         'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm',
   ),
@@ -80,6 +98,9 @@ const List<OnDeviceModelSpec> kSupportedOnDeviceModels = [
     description:
         'A fast assistant fluent in many languages, great for chatting and following detailed instructions.',
     fileName: 'Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm',
+    // The `ekv4096` bundle name encodes a 4,096-token KV cache.
+    contextWindowTokens: 4096,
+    maxOutputTokens: 1024,
     downloadUrl:
         'https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm',
   ),
@@ -94,6 +115,9 @@ const List<OnDeviceModelSpec> kSupportedOnDeviceModels = [
         'Thinks through questions step by step before answering. Ideal for math, logic, and complex problems.',
     fileName:
         'DeepSeek-R1-Distill-Qwen-1.5B_multi-prefill-seq_q8_ekv4096.litertlm',
+    // The `ekv4096` bundle name encodes a 4,096-token KV cache.
+    contextWindowTokens: 4096,
+    maxOutputTokens: 1024,
     downloadUrl:
         'https://huggingface.co/litert-community/DeepSeek-R1-Distill-Qwen-1.5B/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B_multi-prefill-seq_q8_ekv4096.litertlm',
   ),
@@ -107,6 +131,8 @@ const List<OnDeviceModelSpec> kSupportedOnDeviceModels = [
     description:
         'Compact and super fast. Uses minimal storage and battery, perfect for quick answers on any device.',
     fileName: 'Qwen3-0.6B.litertlm',
+    contextWindowTokens: 4096,
+    maxOutputTokens: 1024,
     downloadUrl:
         'https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B.litertlm',
   ),

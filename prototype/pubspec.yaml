@@ -1,5 +1,5 @@
 name: harness
-description: "A new Flutter project."
+description: "The agent that runs the tools, not only the chat."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -54,6 +54,7 @@ dependencies:
   flutter_local_notifications: ^22.2.0
   timezone: ^0.11.1
   html: ^0.15.7
+  lucide_icons_flutter: ^4.0.3
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -77,10 +78,28 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  assets:
+    - assets/branding/
+    - assets/builtin_skills/a2ui-basic/
+    - assets/builtin_skills/a2ui-basic/references/
+    - assets/builtin_skills/a2ui-basic/references/components/
+    - assets/builtin_skills/a2ui-basic/references/examples/
+
+  fonts:
+    - family: Geist
+      fonts:
+        - asset: assets/fonts/Geist-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Geist-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Geist-SemiBold.ttf
+          weight: 600
+    - family: Geist Mono
+      fonts:
+        - asset: assets/fonts/GeistMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/GeistMono-Medium.ttf
+          weight: 500
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

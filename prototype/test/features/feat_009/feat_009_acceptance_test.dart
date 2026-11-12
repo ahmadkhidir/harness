@@ -103,7 +103,7 @@ void main() {
 
       final provider = _ScriptedProvider([
         '<system_call>{"command": "download_media", "parameters": {"url": "https://example.com/photos/trip.png"}}</system_call>',
-        '<system_call>{"command": "send_message", "parameters": {"text": "Saved the photo."}}</system_call>',
+        '<system_call>{"command": "send_ui_message", "parameters": {"message": "Saved the photo."}}</system_call>',
       ]);
 
       final engine = HarnessEngine(

@@ -74,6 +74,25 @@ void main() {
       expect(claude.isActive, isTrue);
     });
 
+    test('migrates legacy Ollama provider labels to OpenAI-compatible', () async {
+      await db.saveProviderConfig(
+        ProviderConfig(
+          id: 'openai_compatible',
+          providerType: 'openai_compatible',
+          displayName: 'Ollama',
+          modelName: 'llama3:8b',
+          customEndpointUrl: 'http://localhost:11434/v1',
+        ),
+      );
+      await db.close();
+
+      final configs = await db.getAllProviderConfigs();
+      final migrated = configs.firstWhere(
+        (c) => c.id == 'openai_compatible',
+      );
+      expect(migrated.displayName, equals('OpenAI-compatible'));
+    });
+
     test('upserts provider configuration successfully', () async {
       final custom = ProviderConfig(
         id: 'custom_ollama',

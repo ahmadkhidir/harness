@@ -17,18 +17,18 @@ class Turn {
   /// Originator of the turn message: either `'user'` or `'agent'`.
   final String sender;
 
-  /// Content discriminator: `'text'` (Markdown), `'a2ui'` (declarative widget),
-  /// or `'action'` (a human-readable receipt for an interface selection).
+  /// Content discriminator: `'text'` (Markdown) or `'a2ui'` (declarative
+  /// widget).
   final String contentType;
 
-  /// User-facing Markdown content when [contentType] is `'text'`, optional
-  /// companion text for `'a2ui'`, or the action label for `'action'`.
+  /// User-facing Markdown content when [contentType] is `'text'`, or
+  /// audit-only text for `'a2ui'` (never rendered as a companion bubble).
   final String? text;
 
   /// Surface identifier for the mounted A2UI component when [contentType] is `'a2ui'`.
   final String? a2uiSurfaceId;
 
-  /// Full raw A2UI payload dictionary passed inside `send_a2ui` parameters.
+  /// Raw A2UI message stream delivered through `send_ui_message`.
   final Map<String, dynamic>? a2uiPayload;
 
   /// Identifier of the model that generated this turn (null for user turns).
@@ -57,11 +57,9 @@ class Turn {
     if (sender != 'user' && sender != 'agent') {
       throw ArgumentError('sender must be "user" or "agent", got "$sender".');
     }
-    if (contentType != 'text' &&
-        contentType != 'a2ui' &&
-        contentType != 'action') {
+    if (contentType != 'text' && contentType != 'a2ui') {
       throw ArgumentError(
-          'contentType must be "text", "a2ui", or "action", got "$contentType".');
+          'contentType must be "text" or "a2ui", got "$contentType".');
     }
     if (tokenCount != null && tokenCount! < 0) {
       throw ArgumentError('tokenCount must be non-negative.');
@@ -79,9 +77,6 @@ class Turn {
 
   /// Convenience getter indicating if the turn renders plain Markdown text.
   bool get isText => contentType == 'text';
-
-  /// Convenience getter indicating if the turn is an interface action receipt.
-  bool get isAction => contentType == 'action';
 
   /// Serializes the turn into a JSON map adhering to turn.schema.json.
   Map<String, dynamic> toJson() {
@@ -103,12 +98,15 @@ class Turn {
 
   /// Deserializes a turn from a JSON map.
   factory Turn.fromJson(Map<String, dynamic> json) {
+    final rawContentType = json['contentType'] as String? ?? 'text';
     return Turn(
       id: json['id'] as String,
       sessionId: json['sessionId'] as String,
       timestamp: DateTime.parse(json['timestamp'] as String),
       sender: json['sender'] as String,
-      contentType: json['contentType'] as String,
+      // Older sessions may contain action receipts. They are read as ordinary
+      // text turns; new action receipts are no longer created.
+      contentType: rawContentType == 'action' ? 'text' : rawContentType,
       text: json['text'] as String?,
       a2uiSurfaceId: json['a2uiSurfaceId'] as String?,
       a2uiPayload: json['a2uiPayload'] != null

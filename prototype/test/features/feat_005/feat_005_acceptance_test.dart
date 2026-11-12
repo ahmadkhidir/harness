@@ -97,7 +97,7 @@ void main() {
   group('FEAT-005 Acceptance Tests - Dual-File Isolated Session Management & Compaction', () {
     test('Criterion 1: User message and final agent delivery synchronously dual-write across turns.json and context.txt', () async {
       final session = await sessionService.createSession(title: 'Dual-Write Test');
-      mockModel.responseText = '<system_call>{"command": "send_message", "parameters": {"text": "Photosynthesis produces glucose and oxygen."}}</system_call>';
+      mockModel.responseText = '<system_call>{"command": "send_ui_message", "parameters": {"message": "Photosynthesis produces glucose and oxygen."}}</system_call>';
 
       final bloc = HarnessSessionBloc(
         engine: engine,

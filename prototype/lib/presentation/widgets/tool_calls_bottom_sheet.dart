@@ -1,6 +1,11 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
+
 import '../../core/models/tool_execution_record.dart';
+import '../theme/harness_colors.dart';
+import '../theme/harness_icons.dart';
+import '../theme/harness_tokens.dart';
 
 /// Opens the modal bottom sheet displaying the list of executed tools and their details.
 void showToolCallsBottomSheet(
@@ -11,10 +16,6 @@ void showToolCallsBottomSheet(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    backgroundColor: Theme.of(context).colorScheme.surface,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
     builder: (modalContext) => ToolCallsBottomSheet(toolCalls: toolCalls),
   );
 }
@@ -31,6 +32,7 @@ class ToolCallsBottomSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = HarnessColors.of(context);
     final maxHeight = MediaQuery.of(context).size.height * 0.75;
 
     return ConstrainedBox(
@@ -39,79 +41,74 @@ class ToolCallsBottomSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Drag handle
-          Center(
-            child: Container(
-              margin: const EdgeInsets.only(top: 10, bottom: 6),
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.outlineVariant,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
           // Modal header
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.fromLTRB(
+              HarnessSpace.lg,
+              HarnessSpace.lg,
+              HarnessSpace.sm,
+              HarnessSpace.sm,
+            ),
             child: Row(
               children: [
                 Icon(
-                  Icons.terminal_rounded,
-                  size: 22,
-                  color: theme.colorScheme.primary,
+                  HarnessIcons.terminal,
+                  size: HarnessSize.iconMd,
+                  color: colors.textSecondary,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: HarnessSpace.sm),
                 Text(
-                  'Tool Executions',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  'Tool executions',
+                  style: theme.textTheme.titleMedium,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: HarnessSpace.sm),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  height: 22,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: HarnessSpace.sm,
+                  ),
+                  alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(12),
+                    color: colors.primary.c100,
+                    borderRadius: BorderRadius.circular(HarnessRadius.xs),
                   ),
                   child: Text(
                     '${toolCalls.length}',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onPrimaryContainer,
-                      fontWeight: FontWeight.bold,
+                    style: HarnessType.label.copyWith(
+                      color: colors.primary.c900,
                     ),
                   ),
                 ),
                 const Spacer(),
                 IconButton(
-                  icon: const Icon(Icons.close),
+                  icon: const Icon(HarnessIcons.x),
                   tooltip: 'Close',
                   onPressed: () => Navigator.pop(context),
                 ),
               ],
             ),
           ),
-          const Divider(height: 1),
+          Divider(height: 1, color: colors.border),
           // Scrollable tool calls list
           Flexible(
             child: toolCalls.isEmpty
                 ? Padding(
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.all(HarnessSpace.xl),
                     child: Center(
                       child: Text(
                         'No tools were dispatched in this turn.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.outline,
+                        style: HarnessType.bodySm.copyWith(
+                          color: colors.textSecondary,
                         ),
                       ),
                     ),
                   )
                 : ListView.separated(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(HarnessSpace.lg),
                     shrinkWrap: true,
                     itemCount: toolCalls.length,
-                    separatorBuilder: (context, index) => const SizedBox(height: 12),
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: HarnessSpace.md),
                     itemBuilder: (context, index) {
                       return _ToolCallCard(record: toolCalls[index]);
                     },
@@ -130,43 +127,57 @@ class _ToolCallCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = HarnessColors.of(context);
     final call = record.call;
 
-    Color statusColor;
-    Widget statusIcon;
-    String statusLabel;
+    final Color statusColor;
+    final Color statusBackground;
+    final Color statusBorder;
+    final Widget statusIcon;
+    final String statusLabel;
 
     if (record.isRunning) {
-      statusColor = theme.colorScheme.primary;
+      statusColor = colors.primary.c700;
+      statusBackground = colors.primary.c100;
+      statusBorder = colors.primary.c300;
       statusIcon = SizedBox(
         width: 14,
         height: 14,
         child: CircularProgressIndicator(
           strokeWidth: 2,
-          color: statusColor,
+          color: colors.primary.c500,
         ),
       );
       statusLabel = 'Running';
     } else if (record.isSuccess) {
-      statusColor = Colors.green.shade700;
-      statusIcon = Icon(Icons.check_circle_outline, size: 16, color: statusColor);
+      statusColor = colors.success.c700;
+      statusBackground = colors.success.c100;
+      statusBorder = colors.success.c300;
+      statusIcon = Icon(
+        HarnessIcons.success,
+        size: HarnessSize.iconSm,
+        color: statusColor,
+      );
       statusLabel = 'Success';
     } else {
-      statusColor = theme.colorScheme.error;
-      statusIcon = Icon(Icons.error_outline, size: 16, color: statusColor);
+      statusColor = colors.error.c700;
+      statusBackground = colors.error.c100;
+      statusBorder = colors.error.c300;
+      statusIcon = Icon(
+        HarnessIcons.error,
+        size: HarnessSize.iconSm,
+        color: statusColor,
+      );
       statusLabel = 'Failed';
     }
 
     return Container(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-        ),
+        color: colors.surfaceSecondary,
+        borderRadius: HarnessRadius.mdAll,
+        border: Border.all(color: colors.border),
       ),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(HarnessSpace.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -176,129 +187,135 @@ class _ToolCallCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   call.command,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontFamily: 'monospace',
-                    fontWeight: FontWeight.bold,
+                  style: HarnessType.codeSm.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: HarnessSpace.sm,
+                  vertical: 3,
+                ),
                 decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+                  color: statusBackground,
+                  borderRadius: BorderRadius.circular(HarnessRadius.xs),
+                  border: Border.all(color: statusBorder),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     statusIcon,
-                    const SizedBox(width: 4),
+                    const SizedBox(width: HarnessSpace.xs),
                     Text(
                       statusLabel,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: statusColor,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: HarnessType.label.copyWith(color: statusColor),
                     ),
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: HarnessSpace.sm),
 
           // Parameters section
-          Text(
-            'Parameters',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.outline,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-              ),
-            ),
-            child: SelectableText(
-              call.parameters.isEmpty
-                  ? 'None'
-                  : const JsonEncoder.withIndent('  ').convert(call.parameters),
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontFamily: 'monospace',
-                color: theme.colorScheme.onSurface,
-              ),
-            ),
+          _SectionLabel(label: 'Parameters', colors: colors),
+          const SizedBox(height: HarnessSpace.xs),
+          _CodeBlock(
+            text: call.parameters.isEmpty
+                ? 'None'
+                : const JsonEncoder.withIndent('  ').convert(call.parameters),
+            colors: colors,
           ),
 
           // Output / Observation / Error section
           if (record.isError && record.errorMessage != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Error Details',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.error,
-                fontWeight: FontWeight.w600,
-              ),
+            const SizedBox(height: HarnessSpace.sm),
+            _SectionLabel(
+              label: 'Error details',
+              colors: colors,
+              color: colors.error.c700,
             ),
-            const SizedBox(height: 4),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.errorContainer.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: theme.colorScheme.error.withValues(alpha: 0.3),
-                ),
-              ),
-              child: SelectableText(
-                record.errorMessage!,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontFamily: 'monospace',
-                  color: theme.colorScheme.onErrorContainer,
-                ),
-              ),
+            const SizedBox(height: HarnessSpace.xs),
+            _CodeBlock(
+              text: record.errorMessage!,
+              colors: colors,
+              background: colors.error.c100,
+              borderColor: colors.error.c300,
+              textColor: colors.error.c900,
             ),
           ] else if (record.output != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Observation Output',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.outline,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-                ),
-              ),
-              child: SelectableText(
-                record.output is String
-                    ? record.output as String
-                    : const JsonEncoder.withIndent('  ').convert(record.output),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontFamily: 'monospace',
-                  color: theme.colorScheme.onSurface,
-                ),
-              ),
+            const SizedBox(height: HarnessSpace.sm),
+            _SectionLabel(label: 'Observation output', colors: colors),
+            const SizedBox(height: HarnessSpace.xs),
+            _CodeBlock(
+              text: record.output is String
+                  ? record.output as String
+                  : const JsonEncoder.withIndent('  ').convert(record.output),
+              colors: colors,
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// Small section heading inside a tool card.
+class _SectionLabel extends StatelessWidget {
+  final String label;
+  final HarnessColors colors;
+  final Color? color;
+
+  const _SectionLabel({
+    required this.label,
+    required this.colors,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: HarnessType.label.copyWith(
+        color: color ?? colors.textSecondary,
+      ),
+    );
+  }
+}
+
+/// Monospace observation block.
+class _CodeBlock extends StatelessWidget {
+  final String text;
+  final HarnessColors colors;
+  final Color? background;
+  final Color? borderColor;
+  final Color? textColor;
+
+  const _CodeBlock({
+    required this.text,
+    required this.colors,
+    this.background,
+    this.borderColor,
+    this.textColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(HarnessSpace.sm),
+      decoration: BoxDecoration(
+        color: background ?? colors.surface,
+        borderRadius: HarnessRadius.smAll,
+        border: Border.all(color: borderColor ?? colors.border),
+      ),
+      child: SelectableText(
+        text,
+        style: HarnessType.codeSm.copyWith(
+          color: textColor ?? colors.textPrimary,
+        ),
       ),
     );
   }

@@ -1,3 +1,4 @@
+import 'package:harness/presentation/theme/harness_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +12,8 @@ import 'package:harness/core/models/turn.dart';
 import 'package:harness/core/routes/app_routes.dart';
 import 'package:harness/data/database/app_database.dart';
 import 'package:harness/data/secure_storage/key_storage_service.dart';
+import 'package:harness/modules/a2ui/a2ui_surface_store.dart';
+import 'package:harness/modules/a2ui/widgets/a2ui_surface_view.dart';
 import 'package:harness/presentation/bloc/harness_session_bloc.dart';
 import 'package:harness/presentation/bloc/harness_session_state.dart';
 import 'package:harness/presentation/bloc/model_switcher_bloc.dart';
@@ -45,7 +48,7 @@ class MockModelProvider extends ModelProvider {
     if (onGenerate != null) {
       return onGenerate!(messages);
     }
-    return '<system_call>\n{"command": "send_message", "parameters": {"text": "I completed the task."}}\n</system_call>';
+    return '<system_call>\n{"command": "send_ui_message", "parameters": {"message": "I completed the task."}}\n</system_call>';
   }
 
   @override
@@ -78,7 +81,7 @@ Widget createTestableChatScreen({
               featureName: 'FEAT-005',
             ),
         AppRoutes.workspace: (_) => const PlaceholderScreen(
-              title: 'Workspace & Skills',
+              title: 'Workspace',
               featureName: 'FEAT-003 & FEAT-004',
             ),
       },
@@ -127,18 +130,18 @@ void main() {
 
     // Verify AppBar widgets
     expect(find.text('Harness'), findsOneWidget);
-    expect(find.byIcon(Icons.forum_outlined), findsOneWidget);
-    expect(find.byIcon(Icons.folder_outlined), findsOneWidget);
-    expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
+    expect(find.byIcon(HarnessIcons.sessions), findsOneWidget);
+    expect(find.byIcon(HarnessIcons.folder), findsOneWidget);
+    expect(find.byIcon(HarnessIcons.settings), findsOneWidget);
 
     // Verify empty state is displayed when there are no turns
     expect(find.byType(EmptyState), findsOneWidget);
-    expect(find.text('Welcome to Harness'), findsOneWidget);
+    expect(find.text('Ready for a task'), findsOneWidget);
     expect(find.text('What commands can you execute?'), findsOneWidget);
 
     // Verify bottom prompt input bar
     expect(find.byType(TextField), findsOneWidget);
-    expect(find.byIcon(Icons.arrow_upward_rounded), findsOneWidget);
+    expect(find.byIcon(HarnessIcons.send), findsOneWidget);
 
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pumpWidget(const SizedBox());
@@ -238,7 +241,7 @@ void main() {
     // Enter prompt into input bar
     final inputFinder = find.byType(TextField);
     await tester.enterText(inputFinder, 'Write a quick python script');
-    await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
+    await tester.tap(find.byIcon(HarnessIcons.send));
     for (int i = 0; i < 5; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
@@ -359,7 +362,7 @@ void main() {
     expect(find.byKey(const ValueKey('executing_tool_calls_button')), findsOneWidget);
 
     // Verify send button toggled to stop execution button
-    expect(find.byIcon(Icons.stop_circle_outlined), findsOneWidget);
+    expect(find.byIcon(HarnessIcons.stop), findsOneWidget);
 
     // Tap collapse icon button to open bottom modal sheet during execution
     await tester.tap(find.byKey(const ValueKey('executing_tool_calls_button')));
@@ -368,13 +371,13 @@ void main() {
     }
 
     // Verify modal bottom sheet opens and displays command name, parameters, and running status
-    expect(find.text('Tool Executions'), findsOneWidget);
+    expect(find.text('Tool executions'), findsOneWidget);
     expect(find.text('load_skill'), findsOneWidget);
     expect(find.textContaining('story_writer'), findsOneWidget);
     expect(find.text('Running'), findsOneWidget);
 
     // Close modal
-    await tester.tap(find.byIcon(Icons.close));
+    await tester.tap(find.byIcon(HarnessIcons.x));
     for (int i = 0; i < 5; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
@@ -411,14 +414,14 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify modal bottom sheet opens for finished turn showing command and success status
-    expect(find.text('Tool Executions'), findsOneWidget);
+    expect(find.text('Tool executions'), findsOneWidget);
     expect(find.text('load_skill'), findsOneWidget);
     expect(find.textContaining('story_writer'), findsOneWidget);
     expect(find.text('Success'), findsOneWidget);
     expect(find.textContaining('Skill loaded'), findsOneWidget);
 
     // Close modal
-    await tester.tap(find.byIcon(Icons.close));
+    await tester.tap(find.byIcon(HarnessIcons.x));
     await tester.pumpAndSettle();
 
     FocusManager.instance.primaryFocus?.unfocus();
@@ -448,7 +451,7 @@ void main() {
     }
 
     // 1. Test Sessions navigation
-    await tester.tap(find.byIcon(Icons.forum_outlined));
+    await tester.tap(find.byIcon(HarnessIcons.sessions));
     await tester.pumpAndSettle();
     expect(find.byType(PlaceholderScreen), findsOneWidget);
     expect(find.text('FEAT-005'), findsOneWidget);
@@ -459,7 +462,7 @@ void main() {
     expect(find.byType(ChatScreen), findsOneWidget);
 
     // 2. Test Workspace navigation
-    await tester.tap(find.byIcon(Icons.folder_outlined));
+    await tester.tap(find.byIcon(HarnessIcons.folder));
     await tester.pumpAndSettle();
     expect(find.byType(PlaceholderScreen), findsOneWidget);
     expect(find.text('FEAT-003 & FEAT-004'), findsOneWidget);
@@ -470,7 +473,7 @@ void main() {
     expect(find.byType(ChatScreen), findsOneWidget);
 
     // 3. Test Settings navigation
-    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.tap(find.byIcon(HarnessIcons.settings));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsScreen), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
@@ -617,13 +620,136 @@ void main() {
     expect(find.textContaining('Missing'), findsWidgets);
 
     // Close bottom sheet
-    await tester.tap(find.byIcon(Icons.settings_outlined).last);
+    await tester.tap(find.byIcon(HarnessIcons.settings).last);
     await tester.pumpAndSettle();
 
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pageBack();
     await tester.pumpAndSettle();
 
+    await tester.pumpWidget(const SizedBox());
+    sessionBloc.close();
+    switcherBloc.close();
+  });
+
+  testWidgets(
+      'anchors a live A2UI surface to its first turn and updates it in place',
+      (WidgetTester tester) async {
+    final switcherBloc = ModelSwitcherBloc(
+      database: database,
+      keyStorage: keyStorage,
+    )..add(const LoadProviderConfigsEvent());
+
+    final sessionBloc = HarnessSessionBloc(
+      engine: engine,
+      keyStorage: keyStorage,
+    );
+
+    await tester.pumpWidget(createTestableChatScreen(
+      sessionBloc: sessionBloc,
+      switcherBloc: switcherBloc,
+    ));
+    for (int i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    final store = A2UISurfaceStore();
+    store.applyMessages([
+      {
+        'version': '1.0',
+        'createSurface': {
+          'surfaceId': 'board',
+          'catalogId': 'basic/v1',
+          'components': [
+            {'id': 'root', 'component': 'Text', 'text': 'Board v1'},
+          ],
+        },
+      },
+    ]);
+
+    Turn a2uiTurn(String id, String text) => Turn(
+          id: id,
+          sessionId: 'sess_surface',
+          timestamp: DateTime.now(),
+          sender: 'agent',
+          contentType: 'a2ui',
+          text: text,
+          a2uiSurfaceId: 'board',
+        );
+
+    final turns = [
+      a2uiTurn('turn_surface_1', 'Opening move'),
+      a2uiTurn('turn_surface_2', 'Opponent replied'),
+      Turn(
+        id: 'turn_user_2',
+        sessionId: 'sess_surface',
+        timestamp: DateTime.now(),
+        sender: 'user',
+        contentType: 'text',
+        text: 'Cell 0',
+      ),
+    ];
+
+    sessionBloc.emit(HarnessSessionReady(
+      sessionId: 'sess_surface',
+      turns: turns,
+      surfaces: store.surfaces,
+    ));
+    for (int i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    // The first A2UI turn owns the only surface. Later A2UI turns add no chat
+    // item at all, and recorded A2UI text is never rendered as companion text.
+    expect(find.byType(A2UISurfaceView), findsOneWidget);
+    expect(find.text('Board v1'), findsOneWidget);
+    expect(find.text('Opening move'), findsNothing);
+    expect(find.text('Opponent replied'), findsNothing);
+    expect(find.text('Cell 0'), findsOneWidget);
+
+    final anchorBubble = tester.widget<MessageBubble>(
+      find
+          .ancestor(
+            of: find.byType(A2UISurfaceView),
+            matching: find.byType(MessageBubble),
+          )
+          .first,
+    );
+    expect(anchorBubble.turn.id, 'turn_surface_1');
+
+    // The surface stays above the newer user turn instead of moving down.
+    expect(
+      tester.getTopLeft(find.byType(A2UISurfaceView)).dy,
+      lessThan(tester.getTopLeft(find.text('Cell 0')).dy),
+    );
+
+    // A later update to the same surfaceId mutates the anchored surface in
+    // place instead of adding another copy to the stream.
+    store.applyMessages([
+      {
+        'version': '1.0',
+        'updateComponents': {
+          'surfaceId': 'board',
+          'components': [
+            {'id': 'root', 'component': 'Text', 'text': 'Board v2'},
+          ],
+        },
+      },
+    ]);
+    sessionBloc.emit(HarnessSessionReady(
+      sessionId: 'sess_surface',
+      turns: turns,
+      surfaces: store.surfaces,
+    ));
+    for (int i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(find.byType(A2UISurfaceView), findsOneWidget);
+    expect(find.text('Board v1'), findsNothing);
+    expect(find.text('Board v2'), findsOneWidget);
+
+    FocusManager.instance.primaryFocus?.unfocus();
     await tester.pumpWidget(const SizedBox());
     sessionBloc.close();
     switcherBloc.close();
