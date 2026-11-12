@@ -26,50 +26,57 @@ class _RecordingClient extends http.BaseClient {
 
 void main() {
   group('HttpTransferClient - FEAT-009', () {
-    test('sends requests to allowlisted hosts and returns the response',
-        () async {
-      final client = MockClient((request) async {
-        expect(request.url.toString(), 'https://api.example.com/status');
-        return http.Response('{"ok":true}', 200, headers: {
-          'content-type': 'application/json',
-          'x-trace': 'abc',
+    test(
+      'sends requests to allowlisted hosts and returns the response',
+      () async {
+        final client = MockClient((request) async {
+          expect(request.url.toString(), 'https://api.example.com/status');
+          return http.Response(
+            '{"ok":true}',
+            200,
+            headers: {'content-type': 'application/json', 'x-trace': 'abc'},
+          );
         });
-      });
 
-      final result = await HttpTransferClient(client: client).send(
-        method: 'GET',
-        url: Uri.parse('https://api.example.com/status'),
-        allowedHosts: const ['api.example.com'],
-      );
-
-      expect(result.status, 200);
-      expect(result.body, '{"ok":true}');
-      expect(result.truncated, isFalse);
-      expect(result.headers['x-trace'], 'abc');
-    });
-
-    test('refuses hosts that are not on the allowlist without sending',
-        () async {
-      var requests = 0;
-      final client = MockClient((request) async {
-        requests++;
-        return http.Response('', 200);
-      });
-
-      await expectLater(
-        () => HttpTransferClient(client: client).send(
-          method: 'POST',
-          url: Uri.parse('https://evil.example/collect'),
+        final result = await HttpTransferClient(client: client).send(
+          method: 'GET',
+          url: Uri.parse('https://api.example.com/status'),
           allowedHosts: const ['api.example.com'],
-        ),
-        throwsA(isA<TransferException>().having(
-          (e) => e.message,
-          'message',
-          contains('not on the allowed hosts list'),
-        )),
-      );
-      expect(requests, 0);
-    });
+        );
+
+        expect(result.status, 200);
+        expect(result.body, '{"ok":true}');
+        expect(result.truncated, isFalse);
+        expect(result.headers['x-trace'], 'abc');
+      },
+    );
+
+    test(
+      'refuses hosts that are not on the allowlist without sending',
+      () async {
+        var requests = 0;
+        final client = MockClient((request) async {
+          requests++;
+          return http.Response('', 200);
+        });
+
+        await expectLater(
+          () => HttpTransferClient(client: client).send(
+            method: 'POST',
+            url: Uri.parse('https://evil.example/collect'),
+            allowedHosts: const ['api.example.com'],
+          ),
+          throwsA(
+            isA<TransferException>().having(
+              (e) => e.message,
+              'message',
+              contains('not on the allowed hosts list'),
+            ),
+          ),
+        );
+        expect(requests, 0);
+      },
+    );
 
     test('supports host:port allowlist entries', () async {
       final client = MockClient((request) async => http.Response('ok', 200));
@@ -78,6 +85,18 @@ void main() {
         method: 'GET',
         url: Uri.parse('https://api.example.com:8443/health'),
         allowedHosts: const ['api.example.com:8443'],
+      );
+
+      expect(result.status, 200);
+    });
+
+    test('supports wildcard allowlist entries', () async {
+      final client = MockClient((request) async => http.Response('ok', 200));
+
+      final result = await HttpTransferClient(client: client).send(
+        method: 'GET',
+        url: Uri.parse('https://api.example.com/health'),
+        allowedHosts: const ['*.example.com'],
       );
 
       expect(result.status, 200);
@@ -111,25 +130,24 @@ void main() {
         (request) async => http.Response('0123456789', 200),
       );
 
-      final result = await HttpTransferClient(
-        client: client,
-        maxResponseBytes: 5,
-      ).send(
-        method: 'GET',
-        url: Uri.parse('https://api.example.com/large'),
-        allowedHosts: const ['api.example.com'],
-      );
+      final result =
+          await HttpTransferClient(client: client, maxResponseBytes: 5).send(
+            method: 'GET',
+            url: Uri.parse('https://api.example.com/large'),
+            allowedHosts: const ['api.example.com'],
+          );
 
       expect(result.body, '01234');
       expect(result.truncated, isTrue);
     });
 
-    test('does not follow redirects that could bypass the allowlist',
-        () async {
+    test('does not follow redirects that could bypass the allowlist', () async {
       final client = MockClient(
-        (request) async => http.Response('', 302, headers: {
-          'location': 'https://evil.example/target',
-        }),
+        (request) async => http.Response(
+          '',
+          302,
+          headers: {'location': 'https://evil.example/target'},
+        ),
       );
 
       await expectLater(
@@ -138,11 +156,13 @@ void main() {
           url: Uri.parse('https://api.example.com/go'),
           allowedHosts: const ['api.example.com'],
         ),
-        throwsA(isA<TransferException>().having(
-          (e) => e.message,
-          'message',
-          contains('redirect'),
-        )),
+        throwsA(
+          isA<TransferException>().having(
+            (e) => e.message,
+            'message',
+            contains('redirect'),
+          ),
+        ),
       );
     });
 

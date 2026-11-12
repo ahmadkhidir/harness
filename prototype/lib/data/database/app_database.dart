@@ -220,8 +220,8 @@ class AppDatabase {
 
   /// Retrieves the hosts approved for outbound `http_request` calls.
   ///
-  /// Entries are normalized to lowercase hostnames or `host:port` values and
-  /// invalid persisted entries are ignored.
+  /// Entries are normalized to lowercase hostnames, wildcard patterns, or
+  /// `host:port` values and invalid persisted entries are ignored.
   Future<List<String>> getAllowedHosts() async {
     final raw = await _read(_allowedHostsKey);
     if (raw == null || raw.isEmpty) return const [];
@@ -229,12 +229,13 @@ class AppDatabase {
     try {
       final decoded = json.decode(raw);
       if (decoded is! List) return const [];
-      final normalized = decoded
-          .map((entry) => normalizeHostEntry(entry.toString()))
-          .whereType<String>()
-          .toSet()
-          .toList()
-        ..sort();
+      final normalized =
+          decoded
+              .map((entry) => normalizeHostEntry(entry.toString()))
+              .whereType<String>()
+              .toSet()
+              .toList()
+            ..sort();
       return List.unmodifiable(normalized);
     } catch (_) {
       return const [];
@@ -243,14 +244,15 @@ class AppDatabase {
 
   /// Persists the approved `http_request` hosts.
   ///
-  /// Throws [ArgumentError] when any entry is not a bare hostname or `host:port`.
+  /// Throws [ArgumentError] when any entry is not a hostname, wildcard
+  /// pattern, or `host:port`.
   Future<void> setAllowedHosts(Iterable<String> hosts) async {
     final normalized = <String>{};
     for (final host in hosts) {
       final entry = normalizeHostEntry(host);
       if (entry == null) {
         throw ArgumentError(
-          'Invalid host entry "$host". Use a hostname or host:port.',
+          'Invalid host entry "$host". Use a hostname, wildcard pattern, or host:port.',
         );
       }
       normalized.add(entry);

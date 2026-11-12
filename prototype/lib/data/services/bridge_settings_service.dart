@@ -67,11 +67,13 @@ class BridgeSettingsService {
   Future<RunnerProvider?> createRunnerProvider() async {
     final endpoint = await database.getRunnerEndpoint();
     if (endpoint == null) return null;
-    return HttpRunnerProvider(endpoint: endpoint, client: client);
+    final token = await keyStorage.getApiKey('runner');
+    return HttpRunnerProvider(endpoint: endpoint, token: token, client: client);
   }
 
   /// Builds the provider used by `web_fetch`.
-  WebFetchProvider createFetchProvider() => HttpWebFetchProvider(client: client);
+  WebFetchProvider createFetchProvider() =>
+      HttpWebFetchProvider(client: client);
 
   /// Returns the hosts approved for `http_request`.
   Future<List<String>> getAllowedHosts() => database.getAllowedHosts();

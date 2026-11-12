@@ -26,6 +26,12 @@ void main() {
       ]);
     });
 
+    test('persists wildcard allowed host patterns', () async {
+      await database.setAllowedHosts(const ['*', '*.example.com']);
+
+      expect(await database.getAllowedHosts(), const ['*', '*.example.com']);
+    });
+
     test('rejects invalid allowed host entries', () async {
       expect(
         () => database.setAllowedHosts(const ['https://example.com/path']),

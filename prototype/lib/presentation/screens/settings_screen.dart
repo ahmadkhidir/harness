@@ -92,11 +92,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _braveKeyController = TextEditingController();
   final TextEditingController _runnerEndpointController =
       TextEditingController();
+  final TextEditingController _runnerTokenController = TextEditingController();
   final TextEditingController _allowedHostController = TextEditingController();
   List<String> _allowedHosts = [];
   bool _obscureBridgeKey = true;
+  bool _obscureRunnerToken = true;
   bool _hasTavilyKey = false;
   bool _hasBraveKey = false;
+  bool _hasRunnerToken = false;
 
   @override
   void initState() {
@@ -115,6 +118,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     String? endpoint;
     var hasTavily = false;
     var hasBrave = false;
+    var hasRunnerToken = false;
     var allowedHosts = <String>[];
 
     try {
@@ -123,6 +127,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       allowedHosts = await db.getAllowedHosts();
       hasTavily = await keyStorage.hasApiKey('tavily');
       hasBrave = await keyStorage.hasApiKey('brave');
+      hasRunnerToken = await keyStorage.hasApiKey('runner');
     } catch (_) {
       // Widget tests and unsupported hosts fall back to defaults.
     }
@@ -134,6 +139,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _allowedHosts = allowedHosts;
       _hasTavilyKey = hasTavily;
       _hasBraveKey = hasBrave;
+      _hasRunnerToken = hasRunnerToken;
     });
   }
 
@@ -144,7 +150,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Enter a hostname or host:port (for example api.example.com).',
+            'Enter a hostname, wildcard pattern, or host:port '
+            '(for example api.example.com, *.example.com, or *).',
           ),
         ),
       );
@@ -164,6 +171,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _allowedHosts = _allowedHosts.where((entry) => entry != host).toList();
     });
+  }
+
+  /// Removes the saved bearer token for the external runner.
+  Future<void> _deleteRunnerToken() async {
+    await KeyStorageService().deleteApiKey('runner');
+    await _loadBridgeSettings();
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Runner token removed.')));
   }
 
   /// Persists the external bridge configuration and any entered search keys.
@@ -188,6 +205,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _braveKeyController.clear();
       }
 
+      final runnerToken = _runnerTokenController.text.trim();
+      if (runnerToken.isNotEmpty) {
+        await keyStorage.saveApiKey('runner', runnerToken);
+        _runnerTokenController.clear();
+      }
+
       await _loadBridgeSettings();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -196,9 +219,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Could not save bridge settings: $e'),
-        ),
+        SnackBar(content: Text('Could not save bridge settings: $e')),
       );
     }
   }
@@ -250,11 +271,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Could not set folder: $e'),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not set folder: $e')));
       }
     }
   }
@@ -280,14 +299,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Text(
                   'Assign a virtual tag for the directory:\n$selectedDirectory\n\nThe model will access this directory as "<tag>/..."',
-                  style: HarnessType.bodySm.copyWith(color: colors.textSecondary),
+                  style: HarnessType.bodySm.copyWith(
+                    color: colors.textSecondary,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: tagController,
                   decoration: const InputDecoration(
                     labelText: 'Mount Tag (e.g. downloads, projects)',
-                    
                   ),
                 ),
               ],
@@ -329,9 +349,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Could not mount directory: $e'),
-          ),
+          SnackBar(content: Text('Could not mount directory: $e')),
         );
       }
     }
@@ -350,11 +368,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Could not unmount: $e'),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not unmount: $e')));
       }
     }
   }
@@ -370,6 +386,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _tavilyKeyController.dispose();
     _braveKeyController.dispose();
     _runnerEndpointController.dispose();
+    _runnerTokenController.dispose();
     _allowedHostController.dispose();
     super.dispose();
   }
@@ -398,9 +415,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               context,
             ).showSnackBar(SnackBar(content: Text(state.notificationMessage!)));
           } else if (state is ModelSwitcherFailure) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(state.errorMessage)),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(state.errorMessage)));
           }
         },
         builder: (context, state) {
@@ -413,11 +430,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    HarnessIcons.error,
-                    size: 48,
-                    color: colors.error.c500,
-                  ),
+                  Icon(HarnessIcons.error, size: 48, color: colors.error.c500),
                   const SizedBox(height: HarnessSpace.md),
                   Text(
                     state.errorMessage,
@@ -480,7 +493,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           key: ValueKey(selectedConfig.id),
                           decoration: const InputDecoration(
                             labelText: 'Select Provider',
-                            
+
                             prefixIcon: Icon(HarnessIcons.provider),
                           ),
                           initialValue: selectedConfig.id,
@@ -639,24 +652,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Divider(height: 24),
 
             // 1. Primary User Root Path
-            Text(
-              'Filesystem',
-              style: theme.textTheme.titleSmall,
-            ),
+            Text('Filesystem', style: theme.textTheme.titleSmall),
             const SizedBox(height: 6),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: colors.border.withValues(
-                  alpha: 0.4,
-                ),
+                color: colors.border.withValues(alpha: 0.4),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: colors.border.withValues(
-                    alpha: 0.5,
-                  ),
-                ),
+                border: Border.all(color: colors.border.withValues(alpha: 0.5)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -665,7 +669,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _currentRootPath ??
                         (HarnessFileSystem.instance?.rootDir.path ??
                             'Default Documents'),
-                    style: HarnessType.codeSm.copyWith(color: colors.textPrimary),
+                    style: HarnessType.codeSm.copyWith(
+                      color: colors.textPrimary,
+                    ),
                   ),
                 ],
               ),
@@ -682,10 +688,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Mounted Workspaces',
-                  style: theme.textTheme.titleSmall,
-                ),
+                Text('Mounted Workspaces', style: theme.textTheme.titleSmall),
                 TextButton.icon(
                   icon: const Icon(HarnessIcons.add, size: 16),
                   label: const Text('Add Workspace'),
@@ -729,7 +732,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 return ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(HarnessIcons.folder, size: HarnessSize.iconMd),
+                  leading: const Icon(
+                    HarnessIcons.folder,
+                    size: HarnessSize.iconMd,
+                  ),
                   title: Text(
                     entry.key,
                     style: HarnessType.bodySm.copyWith(
@@ -773,10 +779,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'On-Device Model Selection',
-          style: theme.textTheme.titleSmall,
-        ),
+        Text('On-Device Model Selection', style: theme.textTheme.titleSmall),
         const SizedBox(height: 4),
         Text(
           'Run AI directly on your device without an internet connection. Choose a model below to download and use offline.',
@@ -789,21 +792,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: colors.border.withValues(
-                alpha: 0.5,
-              ),
+              color: colors.border.withValues(alpha: 0.5),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: colors.border.withValues(alpha: 0.5),
-              ),
+              border: Border.all(color: colors.border.withValues(alpha: 0.5)),
             ),
             child: Row(
               children: [
-                Icon(
-                  HarnessIcons.info,
-                  size: 16,
-                  color: colors.textSecondary,
-                ),
+                Icon(HarnessIcons.info, size: 16, color: colors.textSecondary),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -887,8 +882,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             color: spec.memoryUsageMb > 2000
                                 ? colors.warning.c100
                                 : colors.success.c100,
-                            borderRadius:
-                                BorderRadius.circular(HarnessRadius.xs),
+                            borderRadius: BorderRadius.circular(
+                              HarnessRadius.xs,
+                            ),
                             border: Border.all(
                               color: spec.memoryUsageMb > 2000
                                   ? colors.warning.c300
@@ -927,7 +923,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             const SizedBox(width: 4),
                             Text(
                               'Size: ${spec.downloadSize}',
-                              style: HarnessType.label.copyWith(color: colors.textSecondary),
+                              style: HarnessType.label.copyWith(
+                                color: colors.textSecondary,
+                              ),
                             ),
                           ],
                         ),
@@ -937,7 +935,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             children: [
                               Text(
                                 '${(progress * 100).toInt()}% • ${(progress * spec.totalSizeInMb).toStringAsFixed(0)} / ${spec.downloadSize}',
-                                style: HarnessType.label.copyWith(color: colors.primary.c500),
+                                style: HarnessType.label.copyWith(
+                                  color: colors.primary.c500,
+                                ),
                               ),
                               const SizedBox(width: 4),
                               IconButton(
@@ -956,7 +956,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             children: [
                               Text(
                                 '${(partialProgress * 100).toInt()}% (${(partialBytes / (1024 * 1024)).toStringAsFixed(0)} MB)',
-                                style: HarnessType.label.copyWith(color: colors.warning.c700),
+                                style: HarnessType.label.copyWith(
+                                  color: colors.warning.c700,
+                                ),
                               ),
                               const SizedBox(width: 6),
                               IconButton(
@@ -976,10 +978,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         else if (!isDownloaded)
                           TextButton.icon(
                             key: ValueKey('download_btn_${spec.id}'),
-                            icon: const Icon(
-                              HarnessIcons.download,
-                              size: 16,
-                            ),
+                            icon: const Icon(HarnessIcons.download, size: 16),
                             label: const Text('Download'),
                             onPressed: () {
                               _startDownload(spec, config);
@@ -997,15 +996,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               const SizedBox(width: 4),
                               Text(
                                 'Downloaded',
-                                style: HarnessType.label.copyWith(color: colors.success.c700),
+                                style: HarnessType.label.copyWith(
+                                  color: colors.success.c700,
+                                ),
                               ),
                               const SizedBox(width: 8),
                               IconButton(
                                 key: ValueKey('delete_model_${spec.id}'),
-                                icon: const Icon(
-                                  HarnessIcons.trash,
-                                  size: 16,
-                                ),
+                                icon: const Icon(HarnessIcons.trash, size: 16),
                                 tooltip: 'Delete model weights',
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(),
@@ -1031,8 +1029,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: LinearProgressIndicator(
                           value: partialProgress,
                           minHeight: 4,
-                          backgroundColor:
-                              colors.border,
+                          backgroundColor: colors.border,
                           valueColor: AlwaysStoppedAnimation<Color>(
                             colors.warning.c500,
                           ),
@@ -1195,9 +1192,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'modelPath': null,
         },
       );
-      context.read<ModelSwitcherBloc>().add(
-        UpdateProviderConfigEvent(updated),
-      );
+      context.read<ModelSwitcherBloc>().add(UpdateProviderConfigEvent(updated));
     }
     setState(() {});
   }
@@ -1210,8 +1205,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       spec.fileName.trim(),
     );
 
-    final clampedMaxOutput =
-        _maxOutputTokens.clamp(1, spec.maxOutputTokens);
+    final clampedMaxOutput = _maxOutputTokens.clamp(1, spec.maxOutputTokens);
 
     setState(() {
       _modelController.text = spec.fileName.trim();
@@ -1257,16 +1251,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Section A: Model Selection
-        Text(
-          'Model Selection',
-          style: theme.textTheme.titleSmall,
-        ),
+        Text('Model Selection', style: theme.textTheme.titleSmall),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           key: ValueKey('${config.id}_${_modelController.text}'),
           decoration: const InputDecoration(
             labelText: 'Model Preset',
-            
+
             prefixIcon: Icon(HarnessIcons.sliders),
           ),
           initialValue: presetModels.contains(_modelController.text)
@@ -1295,7 +1286,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           decoration: const InputDecoration(
             labelText: 'Model Identifier',
             hintText: 'e.g. gemini-2.0-flash, gpt-4o, claude-3-7-sonnet',
-            
+
             prefixIcon: Icon(HarnessIcons.model),
             helperText:
                 'Select from presets above or enter a custom model name.',
@@ -1305,10 +1296,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 20),
 
         // Section B: API Credentials
-        Text(
-          'API Credentials',
-          style: theme.textTheme.titleSmall,
-        ),
+        Text('API Credentials', style: theme.textTheme.titleSmall),
         const SizedBox(height: 8),
         TextField(
           controller: _keyController,
@@ -1322,10 +1310,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             helperStyle: TextStyle(
               color: hasKey ? colors.success.c700 : colors.warning.c700,
             ),
-            
+
             prefixIcon: const Icon(HarnessIcons.key),
             suffixIcon: IconButton(
-              icon: Icon(_obscureKey ? HarnessIcons.keyHidden : HarnessIcons.keyVisible),
+              icon: Icon(
+                _obscureKey ? HarnessIcons.keyHidden : HarnessIcons.keyVisible,
+              ),
               onPressed: () => setState(() => _obscureKey = !_obscureKey),
             ),
           ),
@@ -1371,10 +1361,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         // Section C: Custom Endpoint URL
         if (config.providerType == 'openai_compatible' ||
             config.customEndpointUrl != null) ...[
-          Text(
-            'Custom Endpoint',
-            style: theme.textTheme.titleSmall,
-          ),
+          Text('Custom Endpoint', style: theme.textTheme.titleSmall),
           const SizedBox(height: 8),
           TextField(
             controller: _urlController,
@@ -1384,7 +1371,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               helperText:
                   'Base URL for OpenAI-compatible endpoints such as OpenCode, Ollama, vLLM, LocalAI, or custom OpenAI proxies. OpenCode session headers are added automatically.',
               helperMaxLines: 3,
-              
+
               prefixIcon: Icon(HarnessIcons.link),
             ),
           ),
@@ -1453,10 +1440,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'External Bridges',
-                  style: theme.textTheme.titleMedium,
-                ),
+                Text('External Bridges', style: theme.textTheme.titleMedium),
                 IconButton(
                   icon: const Icon(HarnessIcons.refresh, size: 20),
                   onPressed: _loadBridgeSettings,
@@ -1472,16 +1456,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const Divider(height: 24),
-            Text(
-              'Web Search',
-              style: theme.textTheme.titleSmall,
-            ),
+            Text('Web Search', style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               key: ValueKey('bridge_search_$_searchProviderId'),
               decoration: const InputDecoration(
                 labelText: 'Search Provider',
-                
+
                 prefixIcon: Icon(HarnessIcons.searchProvider),
               ),
               initialValue: _searchProviderId,
@@ -1515,7 +1496,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ? colors.success.c700
                         : colors.warning.c700,
                   ),
-                  
+
                   prefixIcon: const Icon(HarnessIcons.key),
                   suffixIcon: IconButton(
                     icon: Icon(
@@ -1545,7 +1526,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ? colors.success.c700
                         : colors.warning.c700,
                   ),
-                  
+
                   prefixIcon: const Icon(HarnessIcons.key),
                   suffixIcon: IconButton(
                     icon: Icon(
@@ -1560,10 +1541,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
             const SizedBox(height: 20),
-            Text(
-              'External Runner',
-              style: theme.textTheme.titleSmall,
-            ),
+            Text('External Runner', style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
             TextField(
               controller: _runnerEndpointController,
@@ -1572,18 +1550,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 hintText: 'https://runner.example.com',
                 helperText:
                     'Base URL for external script execution (POST /execute). Leave empty to disable.',
-                
+
                 prefixIcon: Icon(HarnessIcons.runner),
               ),
             ),
-            const SizedBox(height: 20),
-            Text(
-              'Allowed Hosts',
-              style: theme.textTheme.titleSmall,
+            const SizedBox(height: 12),
+            TextField(
+              controller: _runnerTokenController,
+              obscureText: _obscureRunnerToken,
+              decoration: InputDecoration(
+                labelText: 'Runner Token',
+                hintText: _hasRunnerToken
+                    ? '••••••••••••••••'
+                    : 'Optional bearer token',
+                helperText: _hasRunnerToken
+                    ? '✓ Runner token is saved in the encrypted keystore'
+                    : 'Sent as Authorization: Bearer. Leave empty for an unauthenticated local runner.',
+                helperMaxLines: 2,
+                helperStyle: TextStyle(
+                  color: _hasRunnerToken
+                      ? colors.success.c700
+                      : colors.textSecondary,
+                ),
+                prefixIcon: const Icon(HarnessIcons.key),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscureRunnerToken
+                        ? HarnessIcons.keyHidden
+                        : HarnessIcons.keyVisible,
+                  ),
+                  onPressed: () => setState(
+                    () => _obscureRunnerToken = !_obscureRunnerToken,
+                  ),
+                ),
+              ),
             ),
+            if (_hasRunnerToken)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  icon: const Icon(
+                    HarnessIcons.trash,
+                    size: HarnessSize.iconSm,
+                  ),
+                  label: const Text('Remove token'),
+                  onPressed: _deleteRunnerToken,
+                ),
+              ),
+            const SizedBox(height: 20),
+            Text('Allowed Hosts', style: theme.textTheme.titleSmall),
             const SizedBox(height: 4),
             Text(
-              'Hosts approved for http_request. Downloads are not restricted by this list.',
+              'Hosts approved for HTTP requests. Downloads are not restricted by this list.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: colors.textSecondary,
               ),
@@ -1596,8 +1614,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     controller: _allowedHostController,
                     decoration: const InputDecoration(
                       labelText: 'Add host',
-                      hintText: 'api.example.com or api.example.com:8443',
-                      
+                      hintText: 'api.example.com, *.example.com, or *',
+
                       prefixIcon: Icon(HarnessIcons.publicHost),
                     ),
                     onSubmitted: (_) => _addAllowedHost(),
@@ -1612,9 +1630,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
             const SizedBox(height: 8),
+            Text(
+              'Use * to allow every host, or a pattern such as *.example.com to allow subdomains.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 8),
             if (_allowedHosts.isEmpty)
               Text(
-                'No hosts allowed. http_request is blocked until a host is added and saved.',
+                'No hosts allowed. HTTP requests are blocked until a host is added and saved.',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: colors.warning.c700,
                 ),
@@ -1668,12 +1693,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         // Keep a migrated or hand-edited value selectable rather than letting
         // the dropdown assert because its current value is not in the list.
         _maxOutputTokens,
-      }.toList()
-        ..sort();
+      }.toList()..sort();
     }
 
-    final selected =
-        options.contains(_maxOutputTokens) ? _maxOutputTokens : options.last;
+    final selected = options.contains(_maxOutputTokens)
+        ? _maxOutputTokens
+        : options.last;
     final helperText = isLocal
         ? 'On-device models are capped at ${_formatTokenCount(localCap)} output tokens.'
         : 'Remote models allow larger outputs. Provider/model caps still apply.';
@@ -1681,10 +1706,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Parameters',
-          style: theme.textTheme.titleSmall,
-        ),
+        Text('Parameters', style: theme.textTheme.titleSmall),
         const SizedBox(height: 8),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1692,7 +1714,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Text('Temperature'),
             Text(
               _temperature.toStringAsFixed(1),
-              style: HarnessType.bodySm.copyWith(color: colors.textPrimary, fontWeight: FontWeight.w600),
+              style: HarnessType.bodySm.copyWith(
+                color: colors.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
@@ -1711,7 +1736,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             labelText: 'Max Output Tokens',
             helperText: helperText,
             helperMaxLines: 2,
-            
+
             prefixIcon: const Icon(HarnessIcons.tokens),
           ),
           initialValue: selected,
@@ -1734,8 +1759,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// Formats a token count with thousands separators for the settings labels.
   String _formatTokenCount(int value) {
     return value.toString().replaceAllMapped(
-          RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
-          (match) => '${match[1]},',
-        );
+      RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
+      (match) => '${match[1]},',
+    );
   }
 }

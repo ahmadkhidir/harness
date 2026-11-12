@@ -165,6 +165,7 @@ The default root is chosen by the user or supplied by the platform (`~/Harness` 
 .
 ├── docs/                       product specification (git submodule, read-only for code work)
 │   └── Harness/                overview, architecture, features, schema, screens, NFRs, branding
+├── runner/                     hostable external script runner (Docker)
 └── prototype/                  Flutter application
     ├── lib/
     │   ├── core/               engine, protocol parsing, models, routes, filesystem
@@ -193,8 +194,8 @@ Settings are stored in SQLite and the platform keystore. The main areas are:
 | **On-device** | LiteRT model download, selection, partial-download resume, deletion |
 | **Filesystem** | Harness root directory, mounted workspaces and their virtual tags |
 | **Web search** | DuckDuckGo (no key), Tavily, or Brave, with provider keys |
-| **External runner** | Base URL for remote script execution |
-| **Allowed hosts** | Hosts approved for `http_request` |
+| **External runner** | Base URL and bearer token for remote script execution |
+| **Allowed hosts** | Hosts and wildcard patterns approved for HTTP requests (`*` allows all) |
 
 The `HF_TOKEN` used for model downloads is supplied at build/run time:
 
@@ -203,6 +204,19 @@ fvm flutter run --dart-define-from-file=.env
 # or
 fvm flutter run --dart-define=HF_TOKEN=hf_...
 ```
+
+### External runner
+
+`execute_script` needs a separately hosted runner. The Docker service in [`runner/`](runner/README.md) implements the `POST /execute` contract, supports Python, Node.js, and Bash, and requires a bearer token.
+
+```bash
+cd runner
+cp .env.example .env
+# set RUNNER_TOKEN to a long random value, then:
+docker compose up --build -d
+```
+
+Set the endpoint (`http://<host>:8080`) and the same token under **Settings → External Bridges → External Runner**. Do not expose the runner publicly without HTTPS and a hardened sandbox; see the [runner README](runner/README.md) for the security model.
 
 ---
 

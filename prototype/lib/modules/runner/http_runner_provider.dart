@@ -14,11 +14,14 @@ class HttpRunnerProvider implements RunnerProvider {
   /// Base URL of the runner service.
   final String endpoint;
 
+  /// Optional bearer token sent to the runner.
+  final String? token;
+
   /// HTTP client used for requests, injectable for tests.
   final http.Client? client;
 
   /// Creates a provider for [endpoint].
-  HttpRunnerProvider({required this.endpoint, this.client});
+  HttpRunnerProvider({required this.endpoint, this.token, this.client});
 
   @override
   Future<ScriptExecutionResult> executeScript({
@@ -41,16 +44,22 @@ class HttpRunnerProvider implements RunnerProvider {
     final timeout = Duration(seconds: timeoutSeconds);
 
     try {
-      final response = await clientToUse.post(
-        uri,
-        headers: const {'Content-Type': 'application/json'},
-        body: json.encode({
-          'language': language,
-          'code': code,
-          if (env != null && env.isNotEmpty) 'env': env,
-          'timeoutSeconds': timeoutSeconds,
-        }),
-      ).timeout(timeout);
+      final response = await clientToUse
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null && token!.trim().isNotEmpty)
+                'Authorization': 'Bearer ${token!.trim()}',
+            },
+            body: json.encode({
+              'language': language,
+              'code': code,
+              if (env != null && env.isNotEmpty) 'env': env,
+              'timeoutSeconds': timeoutSeconds,
+            }),
+          )
+          .timeout(timeout);
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw RunnerException(
@@ -68,8 +77,7 @@ class HttpRunnerProvider implements RunnerProvider {
         exitCode: (decoded['exitCode'] as num?)?.toInt() ?? -1,
         stdout: (decoded['stdout'] ?? '').toString(),
         stderr: (decoded['stderr'] ?? '').toString(),
-        executionTimeMs:
-            (decoded['executionTimeMs'] as num?)?.toInt() ?? 0,
+        executionTimeMs: (decoded['executionTimeMs'] as num?)?.toInt() ?? 0,
       );
     } on TimeoutException {
       throw RunnerException(
