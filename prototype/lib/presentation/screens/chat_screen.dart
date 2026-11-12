@@ -422,6 +422,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        centerTitle: true,
         leading: IconButton(
           icon: const Icon(HarnessIcons.sessions),
           tooltip: 'Sessions',
