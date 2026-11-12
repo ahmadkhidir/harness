@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Harness surface (neutral-100, dark). Used for the launch window so the
+         splash matches the product's dark-first canvas. -->
+    <color name="harness_surface">#141A19</color>
+</resources>
