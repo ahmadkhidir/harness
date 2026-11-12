@@ -6,6 +6,8 @@ Harness is a mobile-first agent runtime built in Flutter. It runs autonomous, mu
 
 It is aimed at developers and AI power users who want an agent that can inspect files, search the web, schedule work, and act on the device — not another chat bubble with no hands.
 
+**[Application](https://github.com/ahmadkhidir/harness)** · **[Specification](https://github.com/ahmadkhidir/harness-docs)**
+
 ---
 
 ## Why Harness
@@ -235,7 +237,7 @@ The generated files are committed so a normal build does not require PowerShell.
 
 ## Design
 
-The interface follows [`docs/Harness/branding.md`](docs/Harness/branding.md):
+The interface follows [`docs/Harness/branding.md`](https://github.com/ahmadkhidir/harness-docs/blob/main/Harness/branding.md):
 
 - **Signal Teal** for work the harness is performing, **Graphite** for everything structural.
 - **Geist Sans** for interface text and **Geist Mono** for commands, observations, and paths.
@@ -260,13 +262,13 @@ The specification is the source of truth and lives under `docs/Harness/`:
 
 | Document | Contents |
 |---|---|
-| [Overview](docs/Harness/overview.md) | Product definition, scope, assumptions, KPIs |
-| [Architecture](docs/Harness/architecture.md) | Components, data flow, storage layout, security model |
-| [Features](docs/Harness/features.md) | Capability inventory and priorities |
-| [Schema](docs/Harness/schema.md) | Entities, JSON schemas, `context.txt` protocol |
-| [NFRs](docs/Harness/nfr.md) | Performance, reliability, security, accessibility targets |
-| [Screens](docs/Harness/screens.md) | Screen inventory and navigation |
-| [Branding](docs/Harness/branding.md) | Identity, palette, typography, components |
+| [Overview](https://github.com/ahmadkhidir/harness-docs/blob/main/Harness/overview.md) | Product definition, scope, assumptions, KPIs |
+| [Architecture](https://github.com/ahmadkhidir/harness-docs/blob/main/Harness/architecture.md) | Components, data flow, storage layout, security model |
+| [Features](https://github.com/ahmadkhidir/harness-docs/blob/main/Harness/features.md) | Capability inventory and priorities |
+| [Schema](https://github.com/ahmadkhidir/harness-docs/blob/main/Harness/schema.md) | Entities, JSON schemas, `context.txt` protocol |
+| [NFRs](https://github.com/ahmadkhidir/harness-docs/blob/main/Harness/nfr.md) | Performance, reliability, security, accessibility targets |
+| [Screens](https://github.com/ahmadkhidir/harness-docs/blob/main/Harness/screens.md) | Screen inventory and navigation |
+| [Branding](https://github.com/ahmadkhidir/harness-docs/blob/main/Harness/branding.md) | Identity, palette, typography, components |
 
 ---
 
