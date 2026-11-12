@@ -501,24 +501,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   ),
                                   if (isActive) ...[
                                     const SizedBox(width: HarnessSpace.sm),
-                                    Container(
-                                      height: 22,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: HarnessSpace.sm,
-                                      ),
-                                      alignment: Alignment.center,
-                                      decoration: BoxDecoration(
-                                        color: colors.primary.c600,
-                                        borderRadius: BorderRadius.circular(
-                                          HarnessRadius.xs,
-                                        ),
-                                      ),
-                                      child: Text(
-                                        'Active',
-                                        style: HarnessType.label.copyWith(
-                                          color: colors.primary.c100,
-                                        ),
-                                      ),
+                                    Icon(
+                                      HarnessIcons.check,
+                                      size: HarnessSize.iconSm,
+                                      color: colors.primary.c500,
                                     ),
                                   ],
                                 ],

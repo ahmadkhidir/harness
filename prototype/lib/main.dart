@@ -300,9 +300,9 @@ class _HarnessAppState extends State<HarnessApp> {
         debugShowCheckedModeBanner: false,
         theme: buildHarnessTheme(brightness: Brightness.light),
         darkTheme: buildHarnessTheme(brightness: Brightness.dark),
-        // Dark is the product default; the light column exists so the system
-        // inverts as one palette swap.
-        themeMode: ThemeMode.dark,
+        // Follow the host OS appearance; both palettes are complete and swap
+        // as a single value set.
+        themeMode: ThemeMode.system,
         initialRoute: AppRoutes.chat,
         routes: {
           AppRoutes.chat: (_) => const ChatScreen(),

@@ -175,7 +175,7 @@ class HarnessColors extends ThemeExtension<HarnessColors> {
     borderStrong: Color(0xFF6B7674),
   );
 
-  /// Dark theme palette. Dark is the product default.
+  /// Dark theme palette. Used when the host OS is in dark appearance.
   static const HarnessColors dark = HarnessColors(
     primary: ColorRamp(
       c900: Color(0xFFC4F0EA),
